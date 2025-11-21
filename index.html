@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="c1zz - Fullstack Developer and Space Pirate from Franconia, Germany. I build modern web applications with a focus on usability and performance.">
+  <meta name="theme-color" content="#000000">
+  <title>c1zz</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/src/css/style.css">
+</head>
+<body>
+  <div id="loader">
+    <div id="loaderText"><p>Connection is being established</p></div>
+    <div id="spinner"></div>
+  </div>
+  <div id="navbar">
+    <a href="#" id="navLogo" class="nav-logo">
+      <img src="/favicon.svg" alt="c1zz Logo">
+    </a>
+    <ul>
+      <li id="langToggle" style="margin-left: auto;">
+        <span id="lang-de" class="lang-option active">DE</span>
+        <span class="lang-separator">|</span>
+        <span id="lang-en" class="lang-option">EN</span>
+      </li>
+    </ul>
+  </div>
+  <div id="canvasContainer">
+    <canvas id="globe"></canvas>
+  </div>
+  <div id="spaceCam">
+    <div class="cam-label">CAM</div>
+    <div class="cam-number">1</div>
+  </div>
+  <div id="connectionLost">
+    <div class="connection-text">CONNECTION LOST</div>
+    <div class="connection-subtext">SIGNAL INTERFERENCE DETECTED</div>
+  </div>
+  <div id="camSwitching">
+    <div class="switching-text">SWITCHING TO CAM <span id="targetCam">1</span></div>
+  </div>
+  <div id="cameraDebug">
+    <h4>Camera Debug</h4>
+    <div>Position: <span id="cam-pos">-</span></div>
+    <div>Rotation: <span id="cam-rot">-</span></div>
+    <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(0, 200, 255, 0.3);">
+      <div style="font-size: 0.75rem; opacity: 0.7; margin-bottom: 0.3rem;">Orbit Target (Press 1/2/3):</div>
+      <div>Target: <span id="orbit-target">Earth (0, 0, 0)</span></div>
+    </div>
+  </div>
+  <div id="startContent"></div>
+  <nav id="breadcrumb" aria-label="Breadcrumb">
+    <div id="collapsedPanel" class="collapsed-panel" style="display: none;"></div>
+    <div class="breadcrumb-navigation">
+      <a href="#" data-nav="start" class="breadcrumb-item active"><span class="button-inner">Start</span></a>
+      <span class="breadcrumb-separator">/</span>
+      <a href="#" data-nav="about" class="breadcrumb-item"><span class="button-inner">About</span></a>
+      <span class="breadcrumb-separator">/</span>
+      <a href="#" data-nav="projects" class="breadcrumb-item"><span class="button-inner">Projects</span></a>
+      <span class="breadcrumb-separator">/</span>
+      <a href="#" data-nav="contact" class="breadcrumb-item"><span class="button-inner">Contact</span></a>
+    </div>
+  </nav>
+  <button id="stopTourBtn" class="stop-tour-btn" style="display: none;">
+    <span class="stop-tour-text">STOP TOUR</span>
+  </button>
+  <div id="targetButtons" class="target-buttons" style="display: none;">
+    <button id="targetEarth" class="target-btn" data-target="earth">1</button>
+    <button id="targetMoon" class="target-btn" data-target="moon">2</button>
+    <button id="targetMars" class="target-btn" data-target="mars">3</button>
+  </div>
+  <button id="stopControlsBtn" class="stop-controls-btn" style="display: none;">
+    <span class="stop-controls-text" id="stopControlsText">DISABLE</span>
+  </button>
+  <div id="otherContent">
+    <!-- German Content -->
+    <div id="start-de" class="content lang-de">
+      <p>Hi, ich bin c1zz – Fullstack Developer und Space Pirate aus Franken.</p>
+      <p>Ich entwickle moderne Webanwendungen mit Fokus auf Benutzerfreundlichkeit und Performance. Von Echtzeit-Features bis zu komplexen Datenstrukturen – ich liebe es, Ideen in funktionierende Software umzusetzen.</p>
+    </div>
+    <div id="about-de" class="content lang-de">
+      <p>Seit 2020 betreibe ich Grashouse und arbeite an Projekten, die Einfachheit und Klarheit in den Mittelpunkt stellen. Mein Ziel ist es, benutzerfreundliche und anpassungsfähige Systeme zu entwickeln, die genau das tun, was sie sollen – ohne unnötige Komplexität.</p>
+      <span><strong>Tech-Stack:</strong> Full-Stack 🚀</span>
+      <p><a href="https://github.com/c1zz" target="_blank">GitHub</a></p>
+    </div>
+    <div id="projects-de" class="content lang-de">
+      <h3></h3>
+      <ul class="project-list">
+        <li><a href="https://allucan.de" target="_blank">Bierkopf Online</a> - Kartenspiel mit Multiplayer & KI-Bots</li>
+        <li><a href="https://api.csc-frankenwald.de" target="_blank">CSC Frankenwald</a> - Komplettes Front- und Backend</li>
+        <li><a href="https://frankenwaldhanf.de" target="_blank">Frankenwaldhanf</a> - Zahlreiche Erweiterungen + Design</li>
+        <li><a href="https://tiefenkleiner-bauernhofeis.de" target="_blank">Tiefenkleiner Bauernhofeis</a> - Günstige kleine Webseiten mit Mailserver</li>
+        <li>Kundenspezifische Lösungen - VMs, Docker-Container, Server-Setups</li>
+      </ul>
+    </div>
+    <div id="contact-de" class="content lang-de">
+      <p>Interesse an einer Zusammenarbeit oder Fragen zu meinen Projekten? Schreib mir gerne eine E-Mail an <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a>.</p>
+    </div>
+
+    <!-- English Content -->
+    <div id="start-en" class="content lang-en">
+      <p>Hi, I'm c1zz – Fullstack Developer and Space Pirate from Franconia, Germany.</p>
+      <p>I build modern web applications with a focus on usability and performance. From real-time features to complex data structures – I love turning ideas into working software.</p>
+    </div>
+    <div id="about-en" class="content lang-en">
+      <p>Since 2020, I've been running Grashouse and working on projects that prioritize simplicity and clarity. My goal is to develop user-friendly and adaptable systems that do exactly what they're supposed to – without unnecessary complexity.</p>
+      <span><strong>Tech Stack:</strong> Full-Stack 🚀</span>
+      <p><a href="https://github.com/c1zz" target="_blank">GitHub</a></p>
+    </div>
+    <div id="projects-en" class="content lang-en">
+      <h3></h3>
+      <ul class="project-list">
+        <li><a href="https://allucan.de" target="_blank">Bierkopf Online</a> - Card game with multiplayer & AI bots</li>
+        <li><a href="https://api.csc-frankenwald.de" target="_blank">CSC Frankenwald</a> - Complete front- and backend</li>
+        <li><a href="https://frankenwaldhanf.de" target="_blank">Frankenwaldhanf</a> - Numerous extensions + design</li>
+        <li><a href="https://tiefenkleiner-bauernhofeis.de" target="_blank">Tiefenkleiner Bauernhofeis</a> - Small websites with mail server, affordable</li>
+        <li>Various client projects - VM, Docker, server setup on request</li>
+      </ul>
+    </div>
+    <div id="contact-en" class="content lang-en">
+      <p>Interested in collaboration or have questions about my projects? Feel free to send me an email at <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a>.</p>
+    </div>
+  </div>
+
+  <!-- Overlays (Impressum, Datenschutz, Menu) -->
+  <div id="impressum-overlay" class="overlay" data-close-text-de="Klicken zum Schließen" data-close-text-en="Click to close" style="display: none;">
+    <div class="overlay-content">
+      <div id="impressum-de" class="overlay-lang lang-de">
+        <h1>Impressum</h1>
+        <h2>Angaben gemäß § 5 TMG</h2>
+        <p>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause<br>
+          Deutschland
+        </p>
+        <h2>Kontakt</h2>
+        <p>E-Mail: <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a></p>
+        <h2>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</h2>
+        <p>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause
+        </p>
+        <h2>Haftungsausschluss</h2>
+        <h3>Haftung für Inhalte</h3>
+        <p>Die Inhalte unserer Seiten wurden mit größter Sorgfalt erstellt. Für die Richtigkeit, Vollständigkeit und Aktualität der Inhalte können wir jedoch keine Gewähr übernehmen.</p>
+        <h3>Haftung für Links</h3>
+        <p>Unser Angebot enthält Links zu externen Webseiten Dritter, auf deren Inhalte wir keinen Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen.</p>
+        <h2>Urheberrecht</h2>
+        <p>Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht.</p>
+      </div>
+      <div id="impressum-en" class="overlay-lang lang-en">
+        <h1>Legal Notice</h1>
+        <h2>Information according to § 5 TMG</h2>
+        <p>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause<br>
+          Germany
+        </p>
+        <h2>Contact</h2>
+        <p>Email: <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a></p>
+        <h2>Responsible for content according to § 55 Abs. 2 RStV</h2>
+        <p>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause
+        </p>
+        <h2>Disclaimer</h2>
+        <h3>Liability for Content</h3>
+        <p>The contents of our pages have been created with the greatest care. However, we cannot guarantee the accuracy, completeness and timeliness of the content.</p>
+        <h3>Liability for Links</h3>
+        <p>Our offer contains links to external websites of third parties, on whose contents we have no influence. Therefore, we cannot assume any liability for these external contents.</p>
+        <h2>Copyright</h2>
+        <p>The content and works created by the site operators on these pages are subject to German copyright law.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="datenschutz-overlay" class="overlay" data-close-text-de="Klicken zum Schließen" data-close-text-en="Click to close" style="display: none;">
+    <div class="overlay-content">
+      <div id="datenschutz-de" class="overlay-lang lang-de">
+        <h1>Datenschutz&shy;erklärung</h1>
+        <h2>1. Datenschutz auf einen Blick</h2>
+        <h3>Allgemeine Hinweise</h3>
+        <p>Die folgenden Hinweise geben einen einfachen Überblick darüber, was mit Ihren personenbezogenen Daten passiert, wenn Sie diese Website besuchen.</p>
+        <h2>2. Hosting</h2>
+        <p>
+          Diese Website wird gehostet bei:<br>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause
+        </p>
+        <h2>3. Datenerfassung auf dieser Website</h2>
+        <h3>Server-Log-Dateien</h3>
+        <p>Der Provider der Seiten erhebt und speichert automatisch Informationen in so genannten Server-Log-Dateien:</p>
+        <ul>
+          <li>Browsertyp und Browserversion</li>
+          <li>verwendetes Betriebssystem</li>
+          <li>Referrer URL</li>
+          <li>Hostname des zugreifenden Rechners</li>
+          <li>Uhrzeit der Serveranfrage</li>
+          <li>IP-Adresse</li>
+        </ul>
+        <p><strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der technischen Bereitstellung und Sicherheit der Website).</p>
+        <p><strong>Speicherdauer:</strong> Die Daten werden nach 7 Tagen automatisch gelöscht.</p>
+
+        <h3>LocalStorage</h3>
+        <p>Diese Website verwendet keine Cookies. Die einzige gespeicherte Information ist Ihre Sprachauswahl im LocalStorage Ihres Browsers. Diese Daten verbleiben lokal auf Ihrem Gerät und werden nicht an uns übermittelt. Es werden keine Tracking- oder Analyse-Tools verwendet.</p>
+        <p><strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. f DSGVO (technisch erforderlich für Spracheinstellung).</p>
+
+        <h3>Kontakt per E-Mail</h3>
+        <p>Wenn Sie uns per E-Mail kontaktieren, werden Ihre Angaben aus der Anfrage inklusive der von Ihnen dort angegebenen Kontaktdaten zwecks Bearbeitung der Anfrage und für den Fall von Anschlussfragen bei uns gespeichert.</p>
+        <p><strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. b DSGVO (Vertragsanbahnung) bzw. Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Beantwortung Ihrer Anfrage).</p>
+        <p><strong>Speicherdauer:</strong> Ihre Daten werden gelöscht, sobald die Bearbeitung Ihrer Anfrage abgeschlossen ist und keine gesetzlichen Aufbewahrungspflichten bestehen.</p>
+
+        <h2>4. Ihre Rechte</h2>
+        <p>Sie haben folgende Rechte:</p>
+        <ul>
+          <li><strong>Auskunft:</strong> Sie können Auskunft über Ihre von uns verarbeiteten personenbezogenen Daten verlangen.</li>
+          <li><strong>Berichtigung:</strong> Sie können die Berichtigung unrichtiger Daten verlangen.</li>
+          <li><strong>Löschung:</strong> Sie können die Löschung Ihrer Daten verlangen, sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen.</li>
+          <li><strong>Einschränkung:</strong> Sie können die Einschränkung der Verarbeitung Ihrer Daten verlangen.</li>
+          <li><strong>Datenübertragbarkeit:</strong> Sie können Ihre Daten in einem strukturierten, gängigen Format erhalten.</li>
+          <li><strong>Widerspruch:</strong> Sie können der Verarbeitung Ihrer Daten aus Gründen, die sich aus Ihrer besonderen Situation ergeben, jederzeit widersprechen.</li>
+        </ul>
+
+        <h2>5. Beschwerderecht</h2>
+        <p>Sie haben das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren:</p>
+        <p>
+          <strong>Bayerisches Landesamt für Datenschutzaufsicht (BayLDA)</strong><br>
+          Promenade 18<br>
+          91522 Ansbach<br>
+          Website: <a href="https://www.lda.bayern.de" target="_blank">www.lda.bayern.de</a>
+        </p>
+
+        <h2>6. Kontakt Datenschutz</h2>
+        <p>Bei Fragen zum Datenschutz wenden Sie sich bitte an:<br>
+        E-Mail: <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a></p>
+      </div>
+      <div id="datenschutz-en" class="overlay-lang lang-en">
+        <h1>Privacy Policy</h1>
+        <h2>1. Privacy at a Glance</h2>
+        <h3>General Information</h3>
+        <p>The following information provides a simple overview of what happens to your personal data when you visit this website.</p>
+        <h2>2. Hosting</h2>
+        <p>
+          This website is hosted by:<br>
+          C. Ulrich Reis<br>
+          Postfach 10 12 34<br>
+          0815 Zuhause
+        </p>
+        <h2>3. Data Collection on this Website</h2>
+        <h3>Server Log Files</h3>
+        <p>The provider automatically collects and stores information in server log files:</p>
+        <ul>
+          <li>Browser type and browser version</li>
+          <li>Operating system used</li>
+          <li>Referrer URL</li>
+          <li>Hostname of the accessing computer</li>
+          <li>Time of the server request</li>
+          <li>IP address</li>
+        </ul>
+        <p><strong>Legal basis:</strong> Art. 6 (1) lit. f GDPR (legitimate interest in technical provision and security of the website).</p>
+        <p><strong>Retention period:</strong> Data is automatically deleted after 7 days.</p>
+
+        <h3>LocalStorage</h3>
+        <p>This website does not use cookies. The only stored information is your language preference in your browser's LocalStorage. This data remains locally on your device and is not transmitted to us. No tracking or analytics tools are used.</p>
+        <p><strong>Legal basis:</strong> Art. 6 (1) lit. f GDPR (technically necessary for language settings).</p>
+
+        <h3>Contact via Email</h3>
+        <p>If you contact us by email, your details will be stored for the purpose of processing the inquiry and for any follow-up questions.</p>
+        <p><strong>Legal basis:</strong> Art. 6 (1) lit. b GDPR (contract initiation) or Art. 6 (1) lit. f GDPR (legitimate interest in responding to your inquiry).</p>
+        <p><strong>Retention period:</strong> Your data will be deleted once your inquiry has been processed and no legal retention obligations exist.</p>
+
+        <h2>4. Your Rights</h2>
+        <p>You have the following rights:</p>
+        <ul>
+          <li><strong>Access:</strong> You can request information about your personal data processed by us.</li>
+          <li><strong>Rectification:</strong> You can request the correction of inaccurate data.</li>
+          <li><strong>Erasure:</strong> You can request the deletion of your data, provided there are no legal retention obligations.</li>
+          <li><strong>Restriction:</strong> You can request the restriction of processing your data.</li>
+          <li><strong>Data portability:</strong> You can receive your data in a structured, commonly used format.</li>
+          <li><strong>Objection:</strong> You can object to the processing of your data at any time for reasons arising from your particular situation.</li>
+        </ul>
+
+        <h2>5. Right to Lodge a Complaint</h2>
+        <p>You have the right to lodge a complaint with a data protection supervisory authority:</p>
+        <p>
+          <strong>Bavarian State Office for Data Protection Supervision (BayLDA)</strong><br>
+          Promenade 18<br>
+          91522 Ansbach, Germany<br>
+          Website: <a href="https://www.lda.bayern.de" target="_blank">www.lda.bayern.de</a>
+        </p>
+
+        <h2>6. Data Protection Contact</h2>
+        <p>For questions regarding data protection, please contact:<br>
+        Email: <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="menu-overlay" class="overlay" data-close-text-de="Klicken zum Schließen" data-close-text-en="Click to close" style="display: none;">
+    <div class="overlay-content">
+      <div id="menu-de" class="overlay-lang lang-de">
+        <h1>Menü</h1>
+        <div class="menu-tour-section">
+          <p>Starte eine 360° Tour um Erde, Mond und Mars.</p>
+          <a href="#" id="start-tour-de" class="tour-button">🚀 Tour starten</a>
+        </div>
+        <div class="menu-tour-section">
+          <p>Aktiviere freie Kamerasteuerung.</p>
+          <a href="#" id="toggle-controls-de" class="tour-button">🎮 Controls aktivieren</a>
+        </div>
+      </div>
+      <div id="menu-en" class="overlay-lang lang-en">
+        <h1>Menu</h1>
+        <div class="menu-tour-section">
+          <p>Start a 360° tour around Earth, Moon and Mars.</p>
+          <a href="#" id="start-tour-en" class="tour-button">🚀 Start Tour</a>
+        </div>
+        <div class="menu-tour-section">
+          <p>Enable free camera controls.</p>
+          <a href="#" id="toggle-controls-en" class="tour-button">🎮 Enable Controls</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer">
+    <a href="#" id="footer-impressum">Impressum</a>
+    <span class="footer-separator">|</span>
+    <a href="#" id="footer-datenschutz">Datenschutz</a>
+    <span class="footer-separator">|</span>
+    <span>&copy; 2025 c1zz</span>
+  </footer>
+
+  <script type="module" src="/src/js/main.js"></script>
+</body>
+</html>
