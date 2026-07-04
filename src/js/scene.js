@@ -68,6 +68,7 @@ const atmosphereVertex = `
 
 const atmosphereFragment = `
   uniform vec3 sunPosition;
+  uniform vec3 atmosphereColor;
   varying vec3 vertexNormal;
   varying vec3 vertexPosition;
   varying vec3 vViewPosition;
@@ -76,21 +77,21 @@ const atmosphereFragment = `
     vec3 viewDir = normalize(vViewPosition);
     vec3 normal = normalize(vertexNormal);
 
-    // Echter Fresnel-Effekt: stärker am Rand, schwächer in der Mitte
-    float fresnel = 1.0 - abs(dot(viewDir, normal));
-    fresnel = pow(fresnel, 2.5);  // Reduziert von 3.0 auf 2.5 für breitere Atmosphäre
+    // Korrekter Fresnel-Effekt: stärker am Rand, schwächer in der Mitte
+    float fresnel = 1.0 - max(dot(viewDir, normal), 0.0);
+    fresnel = pow(fresnel, 3.5);  // Exponent für schärferen Randeffekt
 
     // Beleuchtung von der Sonne
     vec3 lightDir = normalize(sunPosition - vertexPosition);
     float sunDot = max(dot(normal, lightDir), 0.0);
 
     // Atmosphäre nur auf sonnenbeschienener Seite
-    float atmosphereGlow = fresnel * (sunDot * 0.9 + 0.1);
+    float atmosphereGlow = fresnel * sunDot;
 
-    // Erhöhte Alpha für bessere Sichtbarkeit
-    float alpha = atmosphereGlow * 0.6;  // Erhöht von 0.35 auf 0.6
+    // Subtilerer Alpha-Wert
+    float alpha = atmosphereGlow * 0.6;
 
-    gl_FragColor = vec4(0.3, 0.6, 1.0, alpha);
+    gl_FragColor = vec4(atmosphereColor, alpha);
   }
 `
 
@@ -189,7 +190,9 @@ marsTexture.anisotropy = renderer.capabilities.getMaxAnisotropy()
 marsTexture.minFilter = THREE.LinearMipmapLinearFilter
 marsTexture.magFilter = THREE.LinearFilter
 
-// Lensflare Texturen (nur textureFlare3 für die Spots)
+// Lensflare Texturen
+const textureFlare0 = textureLoader.load('/img/lensflare_opt.png')
+const textureFlare0Alpha = textureLoader.load('/img/lensflare0_alpha.png')
 const textureFlare3 = textureLoader.load('/img/lensflare3.png')
 
 const sphere = new THREE.Mesh(
@@ -279,7 +282,7 @@ clouds.rotation.y = THREE.MathUtils.degToRad(115)
 clouds.rotation.x = THREE.MathUtils.degToRad(-30)
 
 const atmosphere = new THREE.Mesh(
-  new THREE.SphereGeometry(5.05, 64, 64),  // Leicht größer, höhere Auflösung
+  new THREE.SphereGeometry(5.08, 64, 64),  // Größerer Radius für sichtbarere Atmosphäre
   new THREE.ShaderMaterial({
     vertexShader: atmosphereVertex,
     fragmentShader: atmosphereFragment,
@@ -290,6 +293,9 @@ const atmosphere = new THREE.Mesh(
     uniforms: {
       sunPosition: {
         value: new THREE.Vector3(-2000, 500, -3000)
+      },
+      atmosphereColor: {
+        value: new THREE.Vector3(0.3, 0.6, 1.0)
       }
     }
   })
@@ -638,8 +644,184 @@ const sunGlow = new THREE.Mesh(sunGlowGeometry, sunGlowMaterial)
 sunGlow.position.copy(sun.position)
 scene.add(sunGlow)
 
-// Lensflare - nur die sekundären Spots, KEINE Strahlen
+// Volumetrische Sonnenstrahlen als 3D-Objekte
+const sunRaysGroup = new THREE.Group()
+
+// Innere Strahlen - hell, breit, weniger Strahlen
+const innerRayCount = 8
+const innerRayLength = 500
+const innerRayWidth = 180
+
+for (let i = 0; i < innerRayCount; i++) {
+  // Leicht unregelmäßige Winkelverteilung
+  const baseAngle = (i / innerRayCount) * Math.PI * 2
+  const randomOffset = (Math.random() - 0.5) * 0.2
+  const angle = baseAngle + randomOffset
+
+  const rayGeometry = new THREE.PlaneGeometry(innerRayWidth, innerRayLength)
+  const rayMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      time: { value: 0.0 },
+      opacity: { value: 1.0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      uniform float opacity;
+      varying vec2 vUv;
+
+      // HSV zu RGB Konvertierung für Regenbogenfarben
+      vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
+      void main() {
+        // Radiale Gradient von innen nach außen
+        float radialGradient = 1.0 - vUv.y;
+
+        // Seitlicher Gradient für schmale Form
+        float sideGradient = 1.0 - abs(vUv.x - 0.5) * 2.0;
+        sideGradient = smoothstep(0.0, 0.6, sideGradient);
+
+        // Kombiniere Gradienten
+        float alpha = radialGradient * sideGradient;
+        alpha = pow(alpha, 1.5); // Noch weicherer Falloff für mehr Intensität
+
+        // Dramatischer Pulsierender Effekt
+        float pulse = sin(time * 0.4 + vUv.y * 3.5) * 0.25 + 0.75;
+        alpha *= pulse;
+
+        // Regenbogen-Effekt entlang des Strahls
+        float hue = vUv.y * 0.15 + time * 0.02; // Subtile Variation + Animation
+        vec3 rainbowColor = hsv2rgb(vec3(hue, 0.6, 1.0));
+
+        // Warme Sonnenfarbe
+        vec3 warmColor = vec3(1.0, 0.95, 0.75);
+
+        // Mische warme Farbe mit Regenbogen (70% warm, 30% Regenbogen)
+        vec3 color = mix(warmColor, rainbowColor, 0.3);
+
+        gl_FragColor = vec4(color, alpha * 0.85 * opacity); // Viel heller
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  })
+
+  const ray = new THREE.Mesh(rayGeometry, rayMaterial)
+  ray.position.y = innerRayLength / 2
+
+  const rayGroup = new THREE.Group()
+  rayGroup.add(ray)
+  rayGroup.rotation.z = angle
+
+  sunRaysGroup.add(rayGroup)
+}
+
+// Äußere Strahlen - dünner, länger, regelmäßig, dunkler
+const outerRayCount = 20
+const outerRayLength = 800
+const outerRayWidth = 90
+
+for (let i = 0; i < outerRayCount; i++) {
+  // Regelmäßige Verteilung
+  const angle = (i / outerRayCount) * Math.PI * 2
+
+  const rayGeometry = new THREE.PlaneGeometry(outerRayWidth, outerRayLength)
+  const rayMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      time: { value: 0.0 },
+      opacity: { value: 1.0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      uniform float opacity;
+      varying vec2 vUv;
+
+      // HSV zu RGB Konvertierung für Regenbogenfarben
+      vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
+      void main() {
+        // Radiale Gradient von innen nach außen
+        float radialGradient = 1.0 - vUv.y;
+
+        // Seitlicher Gradient für schmale Form
+        float sideGradient = 1.0 - abs(vUv.x - 0.5) * 2.0;
+        sideGradient = smoothstep(0.0, 0.7, sideGradient);
+
+        // Kombiniere Gradienten
+        float alpha = radialGradient * sideGradient;
+        alpha = pow(alpha, 2.2); // Weniger starker Falloff für mehr Sichtbarkeit
+
+        // Dramatischer Pulsierender Effekt
+        float pulse = sin(time * 0.35 + vUv.y * 3.0) * 0.2 + 0.8;
+        alpha *= pulse;
+
+        // Regenbogen-Effekt entlang des Strahls (leicht versetzt zu inneren Strahlen)
+        float hue = vUv.y * 0.15 + time * 0.025; // Subtile Variation + etwas schnellere Animation
+        vec3 rainbowColor = hsv2rgb(vec3(hue, 0.5, 1.0));
+
+        // Warme Sonnenfarbe
+        vec3 warmColor = vec3(1.0, 0.92, 0.72);
+
+        // Mische warme Farbe mit Regenbogen (75% warm, 25% Regenbogen für äußere Strahlen)
+        vec3 color = mix(warmColor, rainbowColor, 0.25);
+
+        gl_FragColor = vec4(color, alpha * 0.5 * opacity); // Heller
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  })
+
+  const ray = new THREE.Mesh(rayGeometry, rayMaterial)
+  ray.position.y = outerRayLength / 2
+
+  const rayGroup = new THREE.Group()
+  rayGroup.add(ray)
+  rayGroup.rotation.z = angle
+
+  sunRaysGroup.add(rayGroup)
+}
+
+sunRaysGroup.position.copy(sun.position)
+scene.add(sunRaysGroup)
+
+// Target opacity für Sun Rays (für smooth fade)
+let sunRaysTargetOpacity = 1.0
+let sunRaysCurrentOpacity = 1.0
+
+// Lensflare
 const lensflare = new Lensflare()
+//lensflare.addElement(new LensflareElement(textureFlare0, 500, 0))
+//lensflare.addElement(new LensflareElement(textureFlare0, 600, 0, new THREE.Color(0.3, 0.3, 0.3)))
+//lensflare.addElement(new LensflareElement(textureFlare0, 700, 0, new THREE.Color(0.15, 0.15, 0.15)))
+//lensflare.addElement(new LensflareElement(textureFlare0Alpha, 500, 0, new THREE.Color(0.7, 0.7, 0.7)))
+//lensflare.addElement(new LensflareElement(textureFlare0Alpha, 600, 0, new THREE.Color(0.3, 0.3, 0.3)))
+//lensflare.addElement(new LensflareElement(textureFlare0Alpha, 700, 0, new THREE.Color(0.15, 0.15, 0.15)))
 lensflare.addElement(new LensflareElement(textureFlare3, 60, 0.6))
 lensflare.addElement(new LensflareElement(textureFlare3, 70, 0.7))
 lensflare.addElement(new LensflareElement(textureFlare3, 120, 0.9))
@@ -654,64 +836,6 @@ scene.add(sunLight)
 // Minimales Ambient Light
 const ambientLight = new THREE.AmbientLight(0x111122, 0.15)
 scene.add(ambientLight)
-
-// Schwebende Staubpartikel
-const dustGeometry = new THREE.BufferGeometry()
-const dustPositions = []
-const dustSizes = []
-
-for (let i = 0; i < 500; i++) {
-  // Zufällige Position in einem Würfel um die Szene
-  const x = (Math.random() - 0.5) * 200
-  const y = (Math.random() - 0.5) * 200
-  const z = (Math.random() - 0.5) * 200
-
-  dustPositions.push(x, y, z)
-
-  // Verschiedene Größen - sehr klein
-  dustSizes.push(Math.random() * 0.15 + 0.05)
-}
-
-dustGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dustPositions, 3))
-dustGeometry.setAttribute('size', new THREE.Float32BufferAttribute(dustSizes, 1))
-
-// Custom Shader für runde, weiche Partikel
-const dustVertexShader = `
-  attribute float size;
-
-  void main() {
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float pointSize = size * (300.0 / -mvPosition.z);
-    gl_PointSize = min(pointSize, 1.5); // Maximale Größe begrenzen
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`
-
-const dustFragmentShader = `
-  void main() {
-    vec2 center = gl_PointCoord - 0.5;
-    float dist = length(center);
-
-    // Runde Form
-    if (dist > 0.5) discard;
-
-    // Weicher Fade zum Rand
-    float alpha = (1.0 - dist * 2.0) * 0.2;
-
-    gl_FragColor = vec4(0.7, 0.7, 0.8, alpha);
-  }
-`
-
-const dustMaterial = new THREE.ShaderMaterial({
-  vertexShader: dustVertexShader,
-  fragmentShader: dustFragmentShader,
-  transparent: true,
-  blending: THREE.AdditiveBlending,
-  depthWrite: false
-})
-
-const dustParticles = new THREE.Points(dustGeometry, dustMaterial)
-// Note: Dust particles not added to scene (caused rendering artifacts)
 
 // Postprocessing Setup
 const composer = new EffectComposer(renderer)
@@ -979,6 +1103,33 @@ function animate() {
   sunMaterial.uniforms.time.value += 0.01
   sunGlowMaterial.uniforms.time.value += 0.01
 
+  // Check if sun is occluded by any object
+  const directionToSun = new THREE.Vector3()
+  directionToSun.subVectors(sun.position, camera.position).normalize()
+
+  raycaster.set(camera.position, directionToSun)
+  const distanceToSun = camera.position.distanceTo(sun.position)
+
+  // Check intersections with all objects in the group (recursive)
+  const intersects = raycaster.intersectObjects(group.children, true)
+
+  // If an object is between camera and sun, fade out rays
+  if (intersects.length > 0 && intersects[0].distance < distanceToSun) {
+    sunRaysTargetOpacity = 0.0
+  } else {
+    sunRaysTargetOpacity = 1.0
+  }
+
+  // Smooth transition
+  sunRaysCurrentOpacity += (sunRaysTargetOpacity - sunRaysCurrentOpacity) * 0.1
+
+  // Update Sun Rays animation and opacity
+  sunRaysGroup.children.forEach((rayGroup) => {
+    const rayMaterial = rayGroup.children[0].material
+    rayMaterial.uniforms.time.value += 0.01
+    rayMaterial.uniforms.opacity.value = sunRaysCurrentOpacity
+  })
+
   composer.render()
   requestAnimationFrame(animate)
   clouds.rotation.y += 0.000025
@@ -1244,7 +1395,6 @@ function startSceneTour() {
   }
 
   // Set display to "Earth Orbit" initially (hide "CAM" label)
-  const camNumberElement = document.querySelector('.cam-number')
   const camLabelElement = document.querySelector('.cam-label')
   window.updateTourOrbitDisplay()
   if (camLabelElement) camLabelElement.style.display = 'none'
@@ -1511,7 +1661,6 @@ function toggleOrbitControls() {
   const stopControlsText = document.getElementById('stopControlsText')
   const targetButtons = document.getElementById('targetButtons')
   const camLabel = document.querySelector('.cam-label')
-  const camNumber = document.querySelector('.cam-number')
 
   // Check current language
   const isGerman = document.querySelector('#lang-de.active') !== null
@@ -1520,7 +1669,7 @@ function toggleOrbitControls() {
     // Save current camera position and rotation before enabling controls
     savedCameraPosition = camera.position.clone()
     savedCameraQuaternion = camera.quaternion.clone()
-    savedContentSection = getCurrentNavSection()
+    savedContentSection = window.getCurrentNavSection()
 
     if (toggleButtonDe) toggleButtonDe.textContent = '🎮 Controls deaktivieren'
     if (toggleButtonEn) toggleButtonEn.textContent = '🎮 Disable Controls'
@@ -1552,7 +1701,7 @@ function toggleOrbitControls() {
 
     // Restore CAM display
     if (camLabel) camLabel.textContent = 'CAM'
-    const currentNavSection = savedContentSection || getCurrentNavSection()
+    const currentNavSection = savedContentSection || window.getCurrentNavSection()
     updateSpaceCam(currentNavSection)
 
     // Show UI elements again

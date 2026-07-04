@@ -1,0 +1,52 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer Circle -->
+  <circle cx="100" cy="100" r="90" fill="none" stroke="#000000" stroke-width="6"/>
+
+  <!-- Code Brackets - Left -->
+  <path d="M 65 70 L 50 85 L 50 115 L 65 130"
+        fill="none"
+        stroke="#000000"
+        stroke-width="8"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Code Brackets - Right -->
+  <path d="M 135 70 L 150 85 L 150 115 L 135 130"
+        fill="none"
+        stroke="#000000"
+        stroke-width="8"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Forward Slash -->
+  <line x1="110" y1="65" x2="90" y2="135"
+        stroke="#000000"
+        stroke-width="8"
+        stroke-linecap="round"/>
+
+  <!-- Binary Code Pattern (decorative) -->
+  <g opacity="0.4">
+    <text x="68" y="55" font-family="monospace" font-size="10" font-weight="bold" fill="#000000">01</text>
+    <text x="120" y="55" font-family="monospace" font-size="10" font-weight="bold" fill="#000000">10</text>
+    <text x="68" y="150" font-family="monospace" font-size="10" font-weight="bold" fill="#000000">11</text>
+    <text x="120" y="150" font-family="monospace" font-size="10" font-weight="bold" fill="#000000">00</text>
+  </g>
+
+  <!-- Corner Accents (Tech-Style) -->
+  <path d="M 25 25 L 25 40 M 25 25 L 40 25"
+        stroke="#000000"
+        stroke-width="4"
+        stroke-linecap="round"/>
+  <path d="M 175 25 L 175 40 M 175 25 L 160 25"
+        stroke="#000000"
+        stroke-width="4"
+        stroke-linecap="round"/>
+  <path d="M 25 175 L 25 160 M 25 175 L 40 175"
+        stroke="#000000"
+        stroke-width="4"
+        stroke-linecap="round"/>
+  <path d="M 175 175 L 175 160 M 175 175 L 160 175"
+        stroke="#000000"
+        stroke-width="4"
+        stroke-linecap="round"/>
+</svg>
