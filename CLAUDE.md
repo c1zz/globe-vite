@@ -193,10 +193,12 @@ The sw.js must never be cached itself (Cache-Control: no-cache). Only static ass
 
 ## Deployment Context
 
+- **Live URL: `https://three.grashouse.de/`** — serves this `dist/` directly. (`grashouse.de/c1zz/globe-vite` is password-protected and is *not* the live site.)
 - **Old version** still exists at `/var/www/vhosts/grashouse.de/c1zz/globe/` (PHP-based)
 - **This version** is the modern replacement using Vite + PWA
 - Server: grashouse.de with Apache
 - Build output goes to `dist/` and requires SPA routing (mod_rewrite or nginx try_files)
+- **File permissions: everything must be world-readable (644).** Vite copies permissions from `public/`, so a source file at 600 ships a file the web server cannot read — that is a **403, not a 404**, which is easy to misread when debugging. One such file breaks the *entire* service-worker install, because Workbox aborts precaching if a single entry fails. Check with `find public dist -type f ! -perm -o=r`.
 
 ## Browser Requirements
 
