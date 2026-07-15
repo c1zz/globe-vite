@@ -93,6 +93,16 @@ a {
   display: flex;
 }
 
+/* Das Canvas ist ein Flex-Item. Ohne min-width/height: 0 gilt min-*: auto, und dann
+   kann es nicht unter seine Intrinsic-Größe schrumpfen - die beim Canvas das
+   width-Attribut ist, also Breite x Pixel-Ratio. Beim Verkleinern des Fensters stemmt
+   es sich damit gegen den Reflow (beim Vergrößern nicht, da ist ja Platz). */
+#globe {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+}
+
 #navbar {
   background: rgba(10, 10, 30, 0.4);
   backdrop-filter: blur(10px) saturate(180%);
@@ -1064,6 +1074,60 @@ a {
   box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.6);
 }
 
+/* Stationsdaten im Franken-Rundflug. Systemfarbe wie die Target-Buttons (Cyan),
+   Position links vom Stop-Button setzt scene.js. pointer-events: none - das Feld
+   soll nie einen Tap abfangen. */
+.tour-info {
+  position: fixed;
+  bottom: 3rem;
+  right: 2rem; /* Fallback, wird von JS gesetzt */
+  z-index: 201;
+  padding: 0.7rem 1.1rem;
+  background: rgba(0, 200, 255, 0.12);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 2px solid rgba(0, 200, 255, 0.5);
+  border-radius: 1.2rem;
+  font-family: "Goldman", sans-serif;
+  box-shadow:
+    0 8px 32px 0 rgba(0, 150, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+
+.tour-info-title {
+  color: #00ccff;
+  font-size: 0.9rem;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  text-shadow:
+    0 0 10px rgba(0, 200, 255, 0.8),
+    0 0 20px rgba(0, 200, 255, 0.4);
+}
+
+.tour-info-body {
+  margin-top: 0.4rem;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.15rem 1rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.tour-info-body .k {
+  color: rgba(0, 200, 255, 0.65);
+  letter-spacing: 0.05em;
+}
+
+.tour-info-body .v {
+  color: #bdeeff;
+  text-align: right;
+  text-shadow: 0 0 8px rgba(0, 150, 255, 0.5);
+}
+
 .target-buttons {
   position: fixed;
   bottom: 3rem;
@@ -1158,6 +1222,24 @@ a {
     right: 1rem;
     padding: 0.6rem 1rem;
     font-size: 0.8rem;
+  }
+
+  /* Bleibt auch hier neben dem Stop-Button - es schrumpft auf seinen Inhalt, und die
+     Zeilenzahl regelt scene.js über die Breite. Nur kompakter. */
+  .tour-info {
+    bottom: 2.5rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 0.9rem;
+  }
+
+  .tour-info-title {
+    font-size: 0.75rem;
+  }
+
+  .tour-info-body {
+    margin-top: 0.25rem;
+    gap: 0.1rem 0.6rem;
+    font-size: 0.65rem;
   }
 
   .target-buttons {

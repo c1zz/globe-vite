@@ -65,6 +65,11 @@
   <button id="stopTourBtn" class="stop-tour-btn" style="display: none;">
     <span class="stop-tour-text">STOP TOUR</span>
   </button>
+  <!-- Stationstexte im Franken-Rundflug. Position setzt scene.js links vom Stop-Button. -->
+  <div id="tourInfo" class="tour-info" style="display: none;">
+    <div class="tour-info-title"></div>
+    <div class="tour-info-body"></div>
+  </div>
   <div id="targetButtons" class="target-buttons" style="display: none;">
     <button id="targetEarth" class="target-btn" data-target="earth">1</button>
     <button id="targetMoon" class="target-btn" data-target="moon">2</button>
@@ -112,7 +117,7 @@
       <h3></h3>
       <ul class="project-list">
         <li><a href="https://allucan.de" target="_blank">Bierkopf Online</a> - Card game with multiplayer & AI bots</li>
-        <li><a href="https://api.csc-frankenwald.de" target="_blank">CSC Frankenwald</a> - Complete front- and backend</li>
+        <li><a href="https://api.csc-frankenwald.de" target="_blank">CSC Frankenwald</a> - Complete frontend and backend</li>
         <li><a href="https://frankenwaldhanf.de" target="_blank">Frankenwaldhanf</a> - Numerous extensions + design</li>
         <li><a href="https://tiefenkleiner-bauernhofeis.de" target="_blank">Tiefenkleiner Bauernhofeis</a> - Small websites with mail server, affordable</li>
         <li>Various client projects - VM, Docker, server setup on request</li>
@@ -150,6 +155,14 @@
         <p>Unser Angebot enthält Links zu externen Webseiten Dritter, auf deren Inhalte wir keinen Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen.</p>
         <h2>Urheberrecht</h2>
         <p>Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht.</p>
+        <h2>Bildquellen</h2>
+        <p>Das 3D-Modell verwendet folgende Kartendaten und Texturen:</p>
+        <ul>
+          <li>Luftbilder Bamberg, Bayreuth, Coburg, Kronach, Kulmbach: Datenquelle Bayerische Vermessungsverwaltung – <a href="https://www.geodaten.bayern.de" target="_blank" rel="noopener">www.geodaten.bayern.de</a> (DOP40, <a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+          <li>Satellitenbilder Oberfranken und Flugroute: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX IT Services GmbH, enthält modifizierte Copernicus-Sentinel-Daten 2020 (<a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+          <li>Europa-Ansicht: NASA Earth Observatory, Blue Marble Next Generation, über NASA EOSDIS GIBS/Worldview</li>
+          <li>Erd-, Mond- und Mars-Texturen: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (<a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+        </ul>
       </div>
       <div id="impressum-en" class="overlay-lang lang-en">
         <h1>Legal Notice</h1>
@@ -162,7 +175,7 @@
         </p>
         <h2>Contact</h2>
         <p>Email: <a href="mailto:c1zz@allucan.de">c1zz@allucan.de</a></p>
-        <h2>Responsible for content according to § 55 Abs. 2 RStV</h2>
+        <h2>Responsible for content according to § 55 para. 2 RStV</h2>
         <p>
           C. Ulrich Reis<br>
           Postfach 10 12 34<br>
@@ -175,6 +188,14 @@
         <p>Our offer contains links to external websites of third parties, on whose contents we have no influence. Therefore, we cannot assume any liability for these external contents.</p>
         <h2>Copyright</h2>
         <p>The content and works created by the site operators on these pages are subject to German copyright law.</p>
+        <h2>Image Credits</h2>
+        <p>The 3D scene uses the following map data and textures:</p>
+        <ul>
+          <li>Aerial imagery of Bamberg, Bayreuth, Coburg, Kronach, Kulmbach: Data source Bavarian Agency for Digitisation, High-Speed Internet and Surveying – <a href="https://www.geodaten.bayern.de" target="_blank" rel="noopener">www.geodaten.bayern.de</a> (DOP40, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+          <li>Satellite imagery of Upper Franconia and the flight route: <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by EOX IT Services GmbH, contains modified Copernicus Sentinel data 2020 (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+          <li>Europe view: NASA Earth Observatory, Blue Marble Next Generation, via NASA EOSDIS GIBS/Worldview</li>
+          <li>Earth, Moon and Mars textures: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</li>
+        </ul>
       </div>
     </div>
   </div>

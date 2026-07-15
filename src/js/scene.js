@@ -107,6 +107,14 @@ const camera = new THREE.PerspectiveCamera(
 )
 
 // WebGL Error-Handling
+// Maßgeblich ist clientWidth/Height, NICHT innerWidth/Height: letztere schließen die
+// Scrollbar mit ein. Das Canvas würde damit immer ein Stück breiter gesetzt als der
+// Inhaltsbereich, erzeugte dadurch selbst eine Scrollbar und hielte die Seite auf.
+function viewportSize() {
+  const el = document.documentElement
+  return { w: el.clientWidth || window.innerWidth, h: el.clientHeight || window.innerHeight }
+}
+
 let renderer
 try {
   renderer = new THREE.WebGLRenderer({
@@ -116,7 +124,8 @@ try {
     alpha: true
   })
 
-  renderer.setSize(innerWidth, innerHeight)
+  const vp0 = viewportSize()
+  renderer.setSize(vp0.w, vp0.h)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 } catch (error) {
   console.error('WebGL initialization failed:', error)
@@ -165,7 +174,23 @@ const orbitTargetElement = document.getElementById('orbit-target')
 
 const textureLoader = new THREE.TextureLoader()
 
-const earthTexture = textureLoader.load('/img/earth_opt.webp')
+// Basis-Globus: SSS-Daymap 4k (Downscale der 8k-Quelle) - gleiche Bildfamilie wie der
+// Europa-Crop, damit der HD-Patch beim Anflug versatzfrei aufliegt.
+// Fallback auf die alte Textur (earth_opt.webp), falls die Datei fehlt/nicht lädt.
+const earthTexture = textureLoader.load(
+  '/img/earth_4k.webp',
+  undefined,
+  undefined,
+  () => {
+    textureLoader.load('/img/earth_opt.webp', (tex) => {
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+      tex.minFilter = THREE.LinearMipmapLinearFilter
+      tex.magFilter = THREE.LinearFilter
+      sphere.material.map = tex
+      sphere.material.needsUpdate = true
+    })
+  }
+)
 earthTexture.anisotropy = renderer.capabilities.getMaxAnisotropy()
 earthTexture.minFilter = THREE.LinearMipmapLinearFilter
 earthTexture.magFilter = THREE.LinearFilter
@@ -344,6 +369,617 @@ atmosphereMars.position.set(500, 0, 500)
 const group = new THREE.Group()
 group.add(sphere, nightLights, clouds, atmosphere, moon, mars)
 scene.add(group)
+
+// ── Europa/Franken HD-Patch (Etappe 2) ────────────────────────────────────
+// Kugelkappe mit dem HD-Crop, exakt über der Basistextur. Gleiche Bildfamilie
+// (SSS-Daymap) + gleiche Rotation wie die Erde => kein Versatz. Blendet
+// distanzabhängig ein ("durch die Wolken stoßen").
+const DEG = Math.PI / 180
+const REGION = {
+  // Geo-Abdeckung des Crops regions/europe.webp (muss zum Bild passen!)
+  lonWest: -2, lonEast: 24, latNorth: 56, latSouth: 42,
+  // Fade-Fenster über Kamera-Distanz zum Erdmittelpunkt
+  fadeStart: 7.5, fadeEnd: 5.8,
+  // Unter dem Tiefflug-Radius (5.005) minus near-Plane (0.0025): so bleibt der Patch
+  // auch im Tiefflug vor der Kamera und muss nicht ausgeblendet werden. Sonst wäre der
+  // Nachbar der Zwischentextur-Kante der nackte Basisglobus mit 9.8 km/px statt 600 m/px.
+  radius: 5.0015
+}
+
+// ── Regio-Texturen: Upload steuern + weich einblenden ─────────────────────
+// Ohne das hier passiert der GPU-Upload (inkl. Mipmaps, zweistellige MB) erst,
+// wenn die Textur zum ersten Mal gerendert wird - also mitten im Tiefflug: Ruckler.
+// initTexture() zieht ihn vor, und die Queue verteilt die Uploads auf je einen
+// pro Frame, damit sie sich nicht zu einem Hänger addieren.
+// readyAt (statt eines bool) gibt zusätzlich eine Einblendrampe: kommt eine Textur
+// spät, während ihr Distanz-Fade schon auf 1 steht, blendet sie trotzdem weich
+// ein statt aufzuploppen.
+const uploadQueue = []
+function loadRegionTexture(url, onReady) {
+  const tex = textureLoader.load(url, () => uploadQueue.push({ tex, onReady }))
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+  tex.colorSpace = earthTexture.colorSpace // identische Behandlung wie Basistextur
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.magFilter = THREE.LinearFilter
+  return tex
+}
+function pumpUploadQueue() {
+  const job = uploadQueue.shift()
+  if (!job) return
+  renderer.initTexture(job.tex) // einmaliger Upload - hier statt im Flug
+  job.onReady()
+}
+const APPEAR_MS = 700
+function appearRamp(readyAt) {
+  return readyAt ? Math.min(1, (performance.now() - readyAt) / APPEAR_MS) : 0
+}
+
+let europeReadyAt = 0
+const europeTexture = loadRegionTexture('/img/regions/europe.webp', () => { europeReadyAt = performance.now() })
+
+const europePatch = new THREE.Mesh(
+  new THREE.SphereGeometry(
+    REGION.radius, 96, 96,
+    (REGION.lonWest + 180) * DEG, (REGION.lonEast - REGION.lonWest) * DEG,
+    (90 - REGION.latNorth) * DEG, (REGION.latNorth - REGION.latSouth) * DEG
+  ),
+  new THREE.MeshStandardMaterial({
+    map: europeTexture,
+    // Wird im Tiefflug synchron mit der Zwischentextur entlichtet (siehe delitFactor),
+    // damit an deren Kante kein Helligkeitssprung steht.
+    emissive: 0xffffff,
+    emissiveMap: europeTexture,
+    emissiveIntensity: 0,
+    metalness: 0.0,
+    roughness: 1.0,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  })
+)
+europePatch.rotation.copy(sphere.rotation) // identische Ausrichtung wie die Erde
+europePatch.visible = false
+scene.add(europePatch) // an scene, nicht group -> nicht im Sonnen-Occlusion-Raycast
+
+// Die neuen SSS-Texturen sind heller/kräftiger als die alte Erde -> per Tint dämpfen.
+// Getrennt regelbar: Orbit-Globus etwas heller als der Nah-Patch. (0xffffff = keine Änderung)
+// Der Basisglobus braucht ZWEI Helligkeiten, keine Konstante: aus dem Orbit darf die
+// Textur kräftig sein, im Anflug wird dieselbe Textur formatfüllend und derselbe Wert
+// ist dann zu hell. Also über die Distanz überblenden - fertig, bevor ab R 7.5 der
+// Europa-Patch einblendet.
+const earthTintOrbit = 0.95 // = 0xf2f2f2
+const earthTintNear = 0.50  // = 0x808080
+const TINT_R_ORBIT = 10.0 // darüber voll earthTintOrbit
+const TINT_R_NEAR = 7.5   // darunter voll earthTintNear
+function updateEarthTint() {
+  const k = THREE.MathUtils.clamp(
+    (TINT_R_ORBIT - camera.position.length()) / (TINT_R_ORBIT - TINT_R_NEAR), 0, 1
+  )
+  sphere.material.color.setScalar(earthTintOrbit + (earthTintNear - earthTintOrbit) * k)
+}
+updateEarthTint()
+
+const EARTH_TINT_PATCH = 0xffffff // Nah-Patch (GIBS/Blue Marble ist schon natürlich dunkel -> kein Tint)
+europePatch.material.color.setHex(EARTH_TINT_PATCH)
+
+// Weicher Alpha-Rand am Patch, damit die rechteckige Textur-Kante verläuft statt als
+// harte Linie sichtbar zu sein (unabhängig von der Kamera-Distanz).
+function makeEdgeAlpha(feather = 0.18) {
+  const size = 128
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')
+  const img = ctx.createImageData(size, size)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / (size - 1), v = y / (size - 1)
+      const d = Math.min(u, 1 - u, v, 1 - v) // Abstand zum nächsten Rand (0=Rand, 0.5=Mitte)
+      const a = Math.max(0, Math.min(1, d / feather))
+      const i = (y * size + x) * 4
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(a * 255)
+      img.data[i + 3] = 255
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.NoColorSpace
+  return tex
+}
+europePatch.material.alphaMap = makeEdgeAlpha(0.18)
+europePatch.material.needsUpdate = true
+
+// Distanzabhängiges Ein-/Ausblenden (wird in animate() aufgerufen)
+function updateEuropePatch() {
+  const d = camera.position.length()
+  let t = (REGION.fadeStart - d) / (REGION.fadeStart - REGION.fadeEnd)
+  t = Math.max(0, Math.min(1, t))
+
+  // Retro-Effekte (Chromatic, Film-Grain, Glitch, CRT/Scanline) in der Nah-/Oberflächen-
+  // Ansicht ausschalten, beim Rückflug in den Orbit wieder an. Vignette + FXAA bleiben.
+  const surfaceView = t > 0.5
+  chromaticPass.enabled = !surfaceView
+  filmGrainPass.enabled = !surfaceView
+  glitchPass.enabled = !surfaceView
+  crtPass.enabled = !surfaceView
+
+  europePatch.material.opacity = t * appearRamp(europeReadyAt)
+  europePatch.visible = europePatch.material.opacity > 0.001
+  clouds.material.opacity = 0.7 * (1 - t) // lokal die Wolken auflösen
+
+  // Synchron mit der Zwischentextur entlichten. Europa bleibt im Tiefflug liegen und
+  // füllt alles außerhalb der Zwischentextur - deren Kante hat dadurch immer einen
+  // gleich hellen Nachbarn, und es bleibt nur der Auflösungswechsel.
+  const u = delitFactor(d)
+  europePatch.material.color.setScalar(1 - u)
+  europePatch.material.emissiveIntensity = u
+}
+
+// ── Oberfranken Mittel-Patch (LOD-Zwischenstufe) ──────────────────────────
+// Schließt die Lücke zwischen Europa (~600 m/px, beleuchtet) und den Stadt-
+// Luftbildern (~8 m/px, unbeleuchtet). Sentinel-2 cloudless (EOX, CC BY 4.0),
+// ~30 m/px, nahtlos und wolkenfrei.
+//
+// Der Patch überbrückt BEIDE Sprünge:
+//   Auflösung - er liegt geometrisch zwischen den anderen beiden Stufen.
+//   Helligkeit - oben rendert er beleuchtet (MeshStandard, wie der Europa-Patch),
+//   beim Sinken wird er kontinuierlich "entlichtet": Diffuse-Farbe -> schwarz,
+//   Emissive -> Textur. Unten ist er damit exakt das unbeleuchtete Bild und
+//   passt nahtlos zu den MeshBasic-Stationen. Nötig, weil sunLight auf 11 steht
+//   und beleuchtete Luftbilder sonst ausbrennen.
+const MID = {
+  lonWest: 10.2, lonEast: 12.2, latNorth: 50.7, latSouth: 49.4,
+  fadeStart: 5.7, fadeEnd: 5.3,   // Einblenden (voll da, bevor enterLowAlt Europa entfernt)
+  delitStart: 5.3, delitEnd: 5.08, // Entlichten bis auf Stations-Niveau
+  radius: 5.002 // < Tiefflug-Radius 5.005 minus near-Plane 0.0025, sonst clippt der Patch weg
+}
+
+let midReadyAt = 0
+const midTexture = loadRegionTexture('/img/regions/franken/oberfranken.webp', () => { midReadyAt = performance.now() })
+
+const midPatch = new THREE.Mesh(
+  new THREE.SphereGeometry(
+    MID.radius, 96, 96,
+    (MID.lonWest + 180) * DEG, (MID.lonEast - MID.lonWest) * DEG,
+    (90 - MID.latNorth) * DEG, (MID.latNorth - MID.latSouth) * DEG
+  ),
+  new THREE.MeshStandardMaterial({
+    map: midTexture,
+    emissive: 0xffffff,
+    emissiveMap: midTexture,
+    emissiveIntensity: 0, // wird beim Sinken auf 1 gefahren
+    metalness: 0.0,
+    roughness: 1.0,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    alphaMap: makeEdgeAlpha(0.16)
+  })
+)
+midPatch.rotation.copy(sphere.rotation)
+midPatch.visible = false
+scene.add(midPatch)
+
+// Keiner der Patches schreibt Tiefe -> die Zeichenreihenfolge entscheidet,
+// welcher oben liegt (nicht der Radius).
+europePatch.renderOrder = 1
+midPatch.renderOrder = 2
+
+// Entlichtungs-Grad: 0 = voll von der Sonne beleuchtet (Orbit), 1 = rohes Bild (Boden).
+// Europa- und Zwischentextur teilen sich die Kurve, damit sie an ihrer gemeinsamen
+// Kante nie unterschiedlich hell sind.
+function delitFactor(d) {
+  return THREE.MathUtils.clamp((MID.delitStart - d) / (MID.delitStart - MID.delitEnd), 0, 1)
+}
+
+function updateMidPatch() {
+  const d = camera.position.length()
+  const t = THREE.MathUtils.clamp((MID.fadeStart - d) / (MID.fadeStart - MID.fadeEnd), 0, 1)
+  midPatch.material.opacity = t * appearRamp(midReadyAt)
+  midPatch.visible = midPatch.material.opacity > 0.001
+
+  const u = delitFactor(d)
+  midPatch.material.color.setScalar(1 - u) // Sonnen-Diffuse ausblenden
+  midPatch.material.emissiveIntensity = u  // Textur unbeleuchtet einblenden
+}
+
+// Geo-Koordinate (lon/lat) -> Weltposition auf der Erdkugel. Nutzt dieselbe Rotation
+// wie die Basistextur, damit der Franken-Punkt zum sichtbaren Europa passt.
+function lonLatToWorld(lon, lat, r) {
+  const phi = (lon + 180) * DEG
+  const theta = (90 - lat) * DEG
+  return new THREE.Vector3(
+    -r * Math.cos(phi) * Math.sin(theta),
+    r * Math.cos(theta),
+    r * Math.sin(phi) * Math.sin(theta)
+  ).applyEuler(sphere.rotation)
+}
+
+// ── Franken-Stationen (Etappe 4) ────────────────────────────────────────────
+// Mit-entwickelt von Claude (Opus 4.8, Anthropic) & c1zz. 🌍🏰
+// Wegpunkte des Tiefflugs über Oberfranken - die Bilddaten liefert der Routen-Patch
+// weiter unten. Für die bildfüllenden Tiefflüge wird die Kamera-Near-Plane
+// verkleinert und Wolken/Atmosphäre ausgeblendet (Maßstab!).
+// Speist das Infofeld unten. Einwohner sind gerundete Näherungen - sie sollen den Ort
+// einordnen, nicht ein Melderegister ersetzen.
+const FRANKEN_STATIONS = [
+  { name: 'Bamberg',  file: 'bamberg',  lon: 10.887, lat: 49.891,
+    pop: 79000, area: 54.6, ele: 262, first: 902,
+    status: { de: 'Kreisfreie Stadt', en: 'Independent city' },
+    landmark: { de: 'Bamberger Dom', en: 'Bamberg Cathedral' },
+    unesco: { de: 'Altstadt, seit 1993', en: 'Old Town, since 1993' } },
+  { name: 'Bayreuth', file: 'bayreuth', lon: 11.578, lat: 49.945,
+    pop: 75000, area: 66.9, ele: 340, first: 1194,
+    status: { de: 'Kreisfreie Stadt', en: 'Independent city' },
+    landmark: { de: 'Markgräfliches Opernhaus', en: 'Margravial Opera House' },
+    unesco: { de: 'Opernhaus, seit 2012', en: 'Opera House, since 2012' } },
+  { name: 'Kulmbach', file: 'kulmbach', lon: 11.451, lat: 50.105,
+    pop: 26000, area: 92.8, ele: 306, first: 1035,
+    status: { de: 'Große Kreisstadt', en: 'Major district town' },
+    landmark: { de: 'Plassenburg', en: 'Plassenburg Castle' } },
+  { name: 'Coburg',   file: 'coburg',   lon: 10.963, lat: 50.258,
+    pop: 41000, area: 48.3, ele: 292, first: 1056,
+    status: { de: 'Kreisfreie Stadt', en: 'Independent city' },
+    landmark: { de: 'Veste Coburg', en: 'Coburg Fortress' } },
+  // Kronach liegt ~5 km südlich der Landesgrenze: in dessen Luftbild ist die
+  // Nordwest-Ecke kein DOP40 (Thüringen), sondern gamma-angeglichenes Sentinel-2.
+  { name: 'Kronach',  file: 'kronach',  lon: 11.331, lat: 50.241,
+    pop: 17000, area: 67.4, ele: 325, first: 1003,
+    status: { de: 'Große Kreisstadt', en: 'Major district town' },
+    landmark: { de: 'Festung Rosenberg', en: 'Rosenberg Fortress' } }
+]
+const STATION_HALF_LON = 0.20 // groß genug, dass die Patch-Ränder beim Tiefflug außerhalb des Bildes liegen
+const STATION_HALF_LAT = 0.11
+const STATION_PATCH_RADIUS = 5.001
+const stationEdgeAlpha = makeEdgeAlpha(0.14)
+const STATION_DIVE_RADIUS = 5.005 // Kamera-Distanz beim Tiefflug (über allen Patches)
+
+// DOP40-Luftbilder (Bayerische Vermessungsverwaltung, CC BY 4.0) über den Städten.
+// Sie liegen ÜBER dem Routen-Patch: der deckt die Strecke dazwischen ab, aber bei
+// 6 km Flughöhe ist Sentinel-2 über einer Stadt nur Matsch - 10 m ist das native
+// Sensor-Limit, effektiv liegen eher 25-30 m an. DOP40 kommt aus 40-cm-Daten und hat
+// bei 8 m/px noch vollen Kontrast: einzelne Häuser statt brauner Fläche.
+FRANKEN_STATIONS.forEach((st) => {
+  st.readyAt = 0
+  const tex = loadRegionTexture('/img/regions/franken/' + st.file + '.webp', () => { st.readyAt = performance.now() })
+  const w = st.lon - STATION_HALF_LON, e = st.lon + STATION_HALF_LON
+  const n = st.lat + STATION_HALF_LAT, s = st.lat - STATION_HALF_LAT
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(
+      STATION_PATCH_RADIUS, 48, 48,
+      (w + 180) * DEG, (e - w) * DEG,
+      (90 - n) * DEG, (n - s) * DEG
+    ),
+    // MeshBasicMaterial: unbeleuchtet -> Luftbild in Echtfarbe, keine Überbelichtung
+    new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true, opacity: 0, depthWrite: false,
+      alphaMap: stationEdgeAlpha
+    })
+  )
+  mesh.rotation.copy(sphere.rotation)
+  mesh.visible = false
+  mesh.renderOrder = 4 // über Europa-, Mittel- und Routen-Patch
+  scene.add(mesh)
+  st.mesh = mesh
+  st.surf = lonLatToWorld(st.lon, st.lat, 5) // Oberflächenpunkt
+  st.axis = st.surf.clone().normalize()       // Richtung nach außen (für Kamera-Position)
+})
+
+// ── Routen-Patch ──────────────────────────────────────────────────────────
+// Deckt die ganze Runde mit ~10.7 m/px ab. Bei 6 km Flughöhe entspricht ein
+// Bildschirmpixel etwa 9 m Boden - die Route ist damit durchgehend nativ scharf.
+//
+// Ersetzt die fünf einzelnen DOP40-Stadtbilder. Die waren mit 8 m/px zwar minimal
+// feiner, aber eben nur über den Städten; dazwischen stand die Zwischentextur mit
+// 36 m/px, also ~4 Bildpunkte pro Texel. Ein Bild statt fünf spart zudem ~75 MB VRAM.
+//
+// Bewusst Sentinel-2 und nicht DOP40: DOP40 ist über Befliegungen hinweg nicht
+// farbabgeglichen - auf 64 km Breite stehen ganze Kacheln als andersfarbige Blöcke
+// im Bild, und an der Landesgrenze fehlen Daten. Nebeneffekt der gleichen Quelle wie
+// beim Mittel-Patch: der Übergang dorthin ist ein reiner Auflösungswechsel, ohne
+// Helligkeitssprung - auch an den Patch-Rändern, wo beide dasselbe Bild zeigen.
+const ROUTE = {
+  lonWest: 10.79, lonEast: 11.69, latNorth: 50.34, latSouth: 49.80,
+  fadeStart: 5.06, fadeEnd: 5.03, // erst unterhalb 5.08, wo der Mittel-Patch fertig entlichtet ist
+  radius: 5.001
+}
+let routeReadyAt = 0
+const routeTexture = loadRegionTexture('/img/regions/franken/route.webp', () => { routeReadyAt = performance.now() })
+const routePatch = new THREE.Mesh(
+  new THREE.SphereGeometry(
+    ROUTE.radius, 96, 96,
+    (ROUTE.lonWest + 180) * DEG, (ROUTE.lonEast - ROUTE.lonWest) * DEG,
+    (90 - ROUTE.latNorth) * DEG, (ROUTE.latNorth - ROUTE.latSouth) * DEG
+  ),
+  // Unbeleuchtet - passt damit zum fertig entlichteten Mittel-Patch darunter.
+  new THREE.MeshBasicMaterial({
+    map: routeTexture,
+    transparent: true, opacity: 0, depthWrite: false,
+    alphaMap: makeEdgeAlpha(0.08)
+  })
+)
+routePatch.rotation.copy(sphere.rotation)
+routePatch.visible = false
+routePatch.renderOrder = 3 // über Europa- und Mittel-Patch
+scene.add(routePatch)
+
+function updateRoutePatch() {
+  const d = camera.position.length()
+  const t = THREE.MathUtils.clamp((ROUTE.fadeStart - d) / (ROUTE.fadeStart - ROUTE.fadeEnd), 0, 1)
+  routePatch.material.opacity = t * appearRamp(routeReadyAt)
+  routePatch.visible = routePatch.material.opacity > 0.001
+}
+
+// ── Franken-Stationen: Tiefflug (durchgehende Kamerafahrt) ──────────────────
+let lowAltMode = false
+const STATION_DIVE_LOOK = new THREE.Vector3(0, 0, 0) // mitgeführtes Blickziel (kein Ruck)
+
+// Harte Umschaltungen. Früher lag darüber ein Farb-Schleier, der sie verdecken sollte;
+// seit der Europa-Patch im Tiefflug liegen bleibt und synchron entlichtet wird, sind
+// sie von sich aus unsichtbar - die Near-Plane sieht man ohnehin nicht, und die Wolken
+// stehen auf dieser Höhe längst bei Opacity 0.
+function enterLowAlt() {
+  lowAltMode = true
+  camera.near = 0.0025; camera.far = 40; camera.updateProjectionMatrix()
+  clouds.visible = false; atmosphere.visible = false
+  // Europa-Patch bleibt bewusst stehen (Radius 5.0015 liegt unter der Kamera) - er ist
+  // der Untergrund, an dem die Kante der Zwischentextur nicht mehr auffällt.
+}
+function exitLowAlt() {
+  lowAltMode = false
+  camera.near = 0.075; camera.far = 5000; camera.updateProjectionMatrix()
+  clouds.visible = true; atmosphere.visible = true
+}
+
+function updateFrankenStations() {
+  // Sicherheitsnetz: sind wir wieder hoch (z.B. nach Tour-Start), Tiefflug-Modus verlassen.
+  if (lowAltMode && camera.position.length() > 6) exitLowAlt()
+
+  // Stadt-Luftbilder nach Nähe einblenden (nur die Stadt direkt drunter)
+  for (const st of FRANKEN_STATIONS) {
+    let a = 0
+    if (lowAltMode) {
+      const d = camera.position.distanceTo(st.surf)
+      a = 1 - Math.min(1, Math.max(0, (d - 0.006) / 0.008)) // eng: voll <0.006, aus >0.014
+      a *= appearRamp(st.readyAt)
+    }
+    st.mesh.material.opacity = a
+    st.mesh.visible = a > 0.001
+  }
+}
+
+// Slerp zwischen zwei Einheits-Richtungen (für eine saubere radiale Fahrt).
+function slerpVec3(a, b, t) {
+  const dot = THREE.MathUtils.clamp(a.dot(b), -1, 1)
+  // Fast parallel: rel entartet zum Nullvektor, normalize() liefert Müll. Dann linear
+  // interpolieren - bei so kleinen Winkeln ist das deckungsgleich mit Slerp.
+  // NICHT einfach b zurückgeben: das ignoriert t. Die Franken-Stationen liegen nur
+  // 26-50 km auseinander, auf 6371 km Erdradius also dot > 0.9999 - jeder Flug
+  // zwischen ihnen wäre ein Sprung in Frame 1.
+  if (dot > 0.999999) return a.clone().lerp(b, t).normalize()
+  const th = Math.acos(dot) * t
+  const rel = b.clone().addScaledVector(a, -dot).normalize()
+  return a.clone().multiplyScalar(Math.cos(th)).addScaledVector(rel, Math.sin(th))
+}
+
+// Inverse von power2.inOut -> Fahrt-Fortschritt (0..1) bei gegebenem Ease-Wert.
+function easeInOutInv(y) {
+  y = Math.min(1, Math.max(0, y))
+  return y < 0.5 ? Math.sqrt(y / 2) : 1 - Math.sqrt((1 - y) / 2)
+}
+
+// Radiale Fahrt (Richtung per Slerp, R monoton) + Umschaltungen in DERSELBEN Timeline.
+// Jede Umschaltung hängt an einer ZIEL-HÖHE (atR), nicht an einem Zeitpunkt: wann die
+// Kamera dort ist, rechnet die Ease-Kurve aus. Damit sitzt sie in beide Flugrichtungen
+// und bei jeder Startdistanz auf derselben Höhe.
+function flyDive(dirTo, Rto, lookTo, dur, swapSeq) {
+  const posFrom = camera.position.clone()
+  const dirFrom = posFrom.clone().normalize()
+  const Rfrom = posFrom.length()
+  const lookFrom = STATION_DIVE_LOOK.clone()
+  const p = { k: 0 }
+  const tl = gsap.timeline()
+  tl.to(p, {
+    k: 1, duration: dur, ease: 'power2.inOut',
+    onUpdate: () => {
+      const dir = slerpVec3(dirFrom, dirTo, p.k)
+      camera.position.copy(dir).multiplyScalar(Rfrom + (Rto - Rfrom) * p.k)
+      STATION_DIVE_LOOK.lerpVectors(lookFrom, lookTo, p.k)
+      camera.lookAt(STATION_DIVE_LOOK)
+    }
+  }, 0)
+  const lo = Math.min(Rfrom, Rto), hi = Math.max(Rfrom, Rto)
+  for (const v of (swapSeq || [])) {
+    // Höhe wird auf dieser Fahrt nie erreicht (der Anflug in der Tour startet schon bei
+    // R 5.4): dann sofort schalten, sonst bliebe z.B. lowAltMode hängen.
+    if (v.atR < lo || v.atR > hi) {
+      tl.call(v.onPeak, null, 0)
+      continue
+    }
+    const frac = (Rfrom - v.atR) / (Rfrom - Rto) // eased-Fortschritt bei Höhe atR
+    tl.call(v.onPeak, null, easeInOutInv(frac) * dur)
+  }
+  return tl
+}
+
+// Höhe, auf der in den Tiefflug-Modus umgeschaltet wird (Near-Plane, Atmosphäre).
+const LOW_ALT_R = 5.25
+
+const ORBIT_RETURN = new THREE.Vector3(-3.76, 3.44, -9.56)
+
+// Abstieg aus dem Orbit auf eine Station bzw. Rückflug.
+function diveToStation(st, dur = 8) {
+  return flyDive(st.axis.clone(), STATION_DIVE_RADIUS, st.surf.clone(), dur, [
+    { atR: LOW_ALT_R, onPeak: enterLowAlt }
+  ])
+}
+// Ziel ist frei wählbar: innerhalb der Tour liefert der Rückflug die Kamera exakt
+// dort ab, wo die Tour pausiert hat - sonst gäbe es beim Fortsetzen einen Sprung.
+function diveOutTo(target, look, dur = 7) {
+  return flyDive(target.clone().normalize(), target.length(), look.clone(), dur, [
+    { atR: LOW_ALT_R, onPeak: exitLowAlt }
+  ])
+}
+
+// ── Franken-Rundflug (Etappe 4b) ──────────────────────────────────────────
+// Seitlicher Flug von Station zu Station, durchgehend auf Tiefflug-Höhe. flyDive
+// taugt dafür nicht: der steigt monoton auf oder ab. Hier bleibt der Radius konstant -
+// die Runde ist ein einziger Tiefflug, kein Auf und Ab pro Etappe. Blick senkrecht
+// nach unten, wie am Ende des Abstiegs.
+function flyHop(stFrom, stTo, dur) {
+  const dirFrom = stFrom.axis.clone(), dirTo = stTo.axis.clone()
+  const p = { k: 0 }
+  return gsap.timeline().to(p, {
+    k: 1, duration: dur, ease: 'power1.inOut',
+    onUpdate: () => {
+      const dir = slerpVec3(dirFrom, dirTo, p.k)
+      camera.position.copy(dir).multiplyScalar(STATION_DIVE_RADIUS)
+      STATION_DIVE_LOOK.copy(dir).multiplyScalar(5) // Bodenpunkt direkt darunter
+      camera.lookAt(STATION_DIVE_LOOK)
+    }
+  }, 0)
+}
+
+// Im Ring, ohne Kreuzung: Bayreuth (SO) -> Kulmbach (NO) -> Kronach (N) ->
+// Coburg (NW) -> Bamberg (SW).
+//
+// Richtung ist bewusst so herum. Die Stadt-Luftbilder reichen ±14 km und sind ab
+// ~17 km seitlich ganz weg - auf kurzen Etappen überlappen sich also die Bilder
+// beider Städte und decken den Übergang gegenseitig ab. Andersherum geflogen käme
+// Bayreuth -> Bamberg direkt dran: 50 km, davon 16.7 km ohne jedes Luftbild, und
+// genau dort sieht man die Kante. So bleibt Bamberg (mit 41 km zur nächsten Stadt der
+// Ausreißer) am Ende und wird über Coburg angeflogen - längste nackte Strecke 7.9 km.
+const FRANKEN_ROUTE = [1, 2, 4, 3, 0]
+const HOP_DUR = 10  // schön langsam
+const HOLD_DUR = 4  // Standzeit über der Station (später Platz für die Texte)
+
+// Etappen nacheinander abarbeiten. Wichtig: jede Etappe wird erst beim Start
+// gebaut, nicht vorab - flyDive/flyHop lesen die Kameraposition im Moment der
+// Konstruktion, eine vorab zusammengesetzte Timeline hätte überall die
+// Startposition eingefroren.
+let frankenTourRunning = false
+let frankenLegTween = null // aktuell laufende Etappe - für den Abbruch
+let frankenAbort = false
+
+// Anzeige oben rechts: während einer Etappe der Stationsname, sonst die Phase.
+// Als Station-Objekt gehalten (nicht als fertiger String), damit ein Sprachwechsel
+// mitten im Flug über updateTourOrbitDisplay korrekt neu übersetzt.
+let frankenLabelStation = null
+// EN bewusst nachgestellt ("Bayreuth Approach"): so heißt im Flugfunk die Anflug-
+// kontrolle, und es reiht sich neben "Earth Orbit"/"Moon Orbit" ein. Franken = Franconia.
+function frankenLabelText(isGerman) {
+  if (frankenLabelStation) {
+    const n = frankenLabelStation.name
+    return isGerman ? 'Anflug ' + n : n + ' Approach'
+  }
+  return isGerman ? 'Franken Anflug' : 'Franconia Approach'
+}
+function setFrankenLabel(st) {
+  frankenLabelStation = st
+  const camNumberElement = document.querySelector('.cam-number')
+  if (camNumberElement) {
+    camNumberElement.textContent = frankenLabelText(document.querySelector('#lang-de.active') !== null)
+  }
+  if (orbitTargetElement && st) {
+    orbitTargetElement.textContent = st.name + ' (' + st.lat.toFixed(2) + 'N, ' + st.lon.toFixed(2) + 'E)'
+  }
+  renderFrankenInfo()
+}
+
+// Infofeld unten (links vom Stop-Button). Erscheint mit dem Anflug und nicht erst beim
+// Ankommen: so bleiben ~14 s zum Lesen statt der 4 s Standzeit.
+function renderFrankenInfo() {
+  const info = document.getElementById('tourInfo')
+  if (!info) return
+  const st = frankenLabelStation
+  if (!st) { info.style.opacity = '0'; return }
+
+  const de = document.querySelector('#lang-de.active') !== null
+  // Ab 560 px passt auch die längste Zeile ("Markgräfliches Opernhaus", ~270 px) neben
+  // den Stop-Button (~113 px + 48 px Rand/Lücke). Darunter nur die Kern-Zeilen.
+  const wide = window.innerWidth > 560
+  const num = (n) => n.toLocaleString(de ? 'de-DE' : 'en-US')
+
+  // core: läuft auch auf schmalen Viewports mit.
+  const rows = [
+    { k: de ? 'EINWOHNER' : 'POPULATION', v: num(st.pop), core: true },
+    { k: de ? 'HÖHE' : 'ELEVATION', v: st.ele + ' m', core: true },
+    { k: de ? 'ERSTERWÄHNT' : 'FIRST RECORDED', v: st.first, core: true },
+    { k: de ? 'FLÄCHE' : 'AREA', v: num(st.area) + ' km²' },
+    { k: de ? 'VERWALTUNG' : 'STATUS', v: de ? st.status.de : st.status.en },
+    { k: de ? 'WAHRZEICHEN' : 'LANDMARK', v: de ? st.landmark.de : st.landmark.en }
+  ]
+  if (st.unesco) rows.push({ k: 'UNESCO', v: de ? st.unesco.de : st.unesco.en })
+
+  info.querySelector('.tour-info-title').textContent = st.name.toUpperCase()
+  info.querySelector('.tour-info-body').innerHTML = rows
+    .filter((r) => wide || r.core)
+    .map((r) => '<span class="k">' + r.k + '</span><span class="v">' + r.v + '</span>')
+    .join('')
+  info.style.display = 'block'
+
+  // Buttonbreite steht erst nach dem Layout fest -> Position erst im nächsten Frame.
+  // Gleiche Rechnung wie updateTargetButtonsPosition: Buttonbreite + Rand + Lücke.
+  requestAnimationFrame(() => {
+    const btn = document.getElementById('stopTourBtn')
+    const rightOffset = window.innerWidth <= 768 ? 16 : 32
+    info.style.right = btn && btn.offsetWidth
+      ? (btn.offsetWidth + rightOffset + 16) + 'px'
+      : rightOffset + 'px'
+    info.style.opacity = '1'
+  })
+}
+
+function runLegs(legs, done) {
+  let i = 0
+  const next = () => {
+    if (frankenAbort) return          // abgebrochen: done NICHT aufrufen (setzt die Tour fort)
+    if (i >= legs.length) return done && done()
+    frankenLegTween = legs[i++](next)
+  }
+  next()
+}
+
+// opts.backTo / opts.backLook: wohin der Rückflug die Kamera abliefert (Default Orbit).
+// opts.onDone: läuft nur bei regulärem Ende, nicht beim Abbruch.
+function startFrankenTour(opts = {}) {
+  if (frankenTourRunning) return
+  frankenTourRunning = true
+  frankenAbort = false
+
+  const back = opts.backTo || ORBIT_RETURN.clone()
+  const backLook = opts.backLook || new THREE.Vector3(0, 0, 0)
+
+  const legs = []
+  const stationAt = (n) => FRANKEN_STATIONS[FRANKEN_ROUTE[n]]
+  legs.push((cb) => { setFrankenLabel(stationAt(0)); return diveToStation(stationAt(0)).eventCallback('onComplete', cb) })
+  legs.push((cb) => gsap.delayedCall(HOLD_DUR, cb))
+  for (let n = 1; n < FRANKEN_ROUTE.length; n++) {
+    const from = stationAt(n - 1), to = stationAt(n)
+    legs.push((cb) => { setFrankenLabel(to); return flyHop(from, to, HOP_DUR).eventCallback('onComplete', cb) })
+    legs.push((cb) => gsap.delayedCall(HOLD_DUR, cb))
+  }
+  legs.push((cb) => { setFrankenLabel(null); return diveOutTo(back, backLook).eventCallback('onComplete', cb) })
+
+  runLegs(legs, () => {
+    frankenTourRunning = false
+    frankenLegTween = null
+    opts.onDone && opts.onDone()
+  })
+}
+
+// Abbruch (Stop-Tour-Button). Der Rundflug läuft in eigenen Timelines - die Tour-
+// Timeline zu killen würde ihn nicht stoppen, die Kamera bliebe im Tiefflug hängen:
+// near-Plane 0.0025 und ausgeblendete Atmosphäre.
+function killFrankenTour() {
+  if (!frankenTourRunning) return
+  frankenAbort = true
+  if (frankenLegTween) { frankenLegTween.kill(); frankenLegTween = null }
+  if (lowAltMode) exitLowAlt()
+  frankenLabelStation = null
+  renderFrankenInfo()
+  frankenTourRunning = false
+}
 
 // Removed unused functions: calcPosFromLatLongRad, homePoint object
 
@@ -1130,6 +1766,14 @@ function animate() {
     rayMaterial.uniforms.opacity.value = sunRaysCurrentOpacity
   })
 
+  // Franken-Stationen (Tiefflug-Modus) + Europa/Franken HD-Patch
+  pumpUploadQueue()
+  updateEarthTint()
+  updateFrankenStations()
+  updateEuropePatch()
+  updateMidPatch()
+  updateRoutePatch()
+
   composer.render()
   requestAnimationFrame(animate)
   clouds.rotation.y += 0.000025
@@ -1290,6 +1934,10 @@ window.updateTourOrbitDisplay = function() {
     case 2:
       camNumberElement.textContent = 'Mars Orbit'
       break
+    case 3:
+      camNumberElement.textContent = frankenLabelText(isGerman)
+      renderFrankenInfo() // app.js ruft das beim Sprachwechsel -> Datenblock mit übersetzen
+      break
   }
 }
 
@@ -1298,6 +1946,14 @@ function endTour() {
   window.isTourActive = false
   currentTourPhase = -1
   window.currentTourPhase = -1
+
+  // Stationsdaten ausblenden (auch wenn die Tour regulär durchgelaufen ist)
+  frankenLabelStation = null
+  const tourInfo = document.getElementById('tourInfo')
+  if (tourInfo) {
+    tourInfo.style.opacity = '0'
+    setTimeout(() => { tourInfo.style.display = 'none' }, 500) // nach der Fade-Transition
+  }
 
   // Hide Stop Tour Button
   const stopTourBtn = document.getElementById('stopTourBtn')
@@ -1337,6 +1993,10 @@ function endTour() {
 
 function stopTour() {
   if (!isTourActive) return
+
+  // Erst den Franken-Rundflug abbrechen: der läuft in eigenen Timelines und würde
+  // sonst weiterfliegen, während endTour() die Kamera zurücksetzt.
+  killFrankenTour()
 
   // Kill current tour timeline
   if (window.currentTourTimeline) {
@@ -1399,11 +2059,7 @@ function startSceneTour() {
   window.updateTourOrbitDisplay()
   if (camLabelElement) camLabelElement.style.display = 'none'
 
-  // Trigger Glitch Effect beim Tour-Start
-  glitchPass.goWild = true
-  setTimeout(() => {
-    glitchPass.goWild = false
-  }, 500)
+  // (Tour-Start-Übergang: sanfter Kamera-Intro weiter unten statt hartem Sprung)
 
   const tourTimeline = gsap.timeline({
     onComplete: () => {
@@ -1441,108 +2097,144 @@ function startSceneTour() {
   const startY = earthCenter.y + 5
   const startZ = earthCenter.z + earthRadius * Math.sin(startAngle)
 
-  camera.position.set(startX, startY, startZ)
-  camera.lookAt(earthCenter.x, earthCenter.y, earthCenter.z)
+  // Sanfter Intro: von der aktuellen Kamera in die Orbit-Startposition gleiten,
+  // Position UND Blick interpoliert -> kein Sprung/Versatz der Erde beim Tour-Start.
+  const introFrom = camera.position.clone()
+  const introTo = new THREE.Vector3(startX, startY, startZ)
+  const introFwd = new THREE.Vector3(); camera.getWorldDirection(introFwd)
+  const introLookFrom = camera.position.clone().add(introFwd.multiplyScalar(camera.position.length()))
+  const introLookTo = new THREE.Vector3(earthCenter.x, earthCenter.y, earthCenter.z)
+  const introLook = introLookFrom.clone()
+  const introP = { k: 0 }
+  tourTimeline.to(introP, {
+    k: 1, duration: 2, ease: 'power2.inOut',
+    onUpdate: () => {
+      camera.position.lerpVectors(introFrom, introTo, introP.k)
+      introLook.lerpVectors(introLookFrom, introLookTo, introP.k)
+      camera.lookAt(introLook)
+    }
+  })
 
-  // Single continuous animation for the entire tour (45 seconds - 15s pro Objekt)
+  // Franken-Anflug: Achse (senkrecht über Franken) + Helfer
+  const frankenSurf = lonLatToWorld(11, 49.5, 5)
+  const frankenAxis = frankenSurf.clone().normalize()
+  const easeInOut = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2)
+  const lerp = (a, b, t) => a + (b - a) * t
+  const _lookTarget = new THREE.Vector3()
+  // Kürzester-Bogen-Interpolation zwischen zwei Einheitsvektoren (für den nahtlosen Abstieg)
+  const slerpDir = (a, b, t) => {
+    const dot = THREE.MathUtils.clamp(a.dot(b), -1, 1)
+    if (dot > 0.9995) return b.clone()
+    const th = Math.acos(dot) * t
+    const rel = b.clone().addScaledVector(a, -dot).normalize()
+    return a.clone().multiplyScalar(Math.cos(th)).addScaledVector(rel, Math.sin(th))
+  }
+
+  // Helper: die immer gleichen Phasenwechsel-Nebeneffekte (Ziel, Anzeige, Glitch)
+  function enterPhase(phase, targetVec, label, withGlitch = true) {
+    if (lastPhase === phase) return
+    controls.target.copy(targetVec)
+    if (orbitTargetElement) orbitTargetElement.textContent = label
+    currentTourPhase = phase
+    window.currentTourPhase = phase
+    window.updateTourOrbitDisplay()
+    if (withGlitch) {
+      glitchPass.goWild = true
+      setTimeout(() => { glitchPass.goWild = false }, 300)
+    }
+    lastPhase = phase
+  }
+
+  // Phasen-Grenzen (Anteil der Gesamtdauer): Erde -> Franken-Anflug -> Mond -> Mars
+  // Franken bekommt bewusst viel Zeit (~24s), damit der Anflug ruhig ausklingt.
+  const P_EARTH = 0.17
+  const P_FRANKEN = 0.50
+  const P_MOON = 0.72
+
+  let frankenDiveDone = false // pro Tour-Durchlauf: der Rundflug wird genau einmal eingeschoben
+
+  // Eine durchgehende Animation über die gesamte Tour
   tourTimeline.to({}, {
-    duration: 45,
+    duration: 72,
     ease: "none",
     onUpdate: function() {
-      const totalProgress = this.progress()
+      const tp = this.progress()
+      let angle
 
-      let currentCenter, currentRadius, currentY
-      let localProgress, angle
-      let currentPhase
+      if (tp < P_EARTH) {
+        // Phase 1: Erd-Orbit (360°)
+        enterPhase(0, new THREE.Vector3(0, 0, 0), 'Earth (0, 0, 0)')
+        angle = (tp / P_EARTH) * Math.PI * 2
+        camera.position.set(
+          earthCenter.x + earthRadius * Math.cos(angle),
+          earthCenter.y + 5,
+          earthCenter.z + earthRadius * Math.sin(angle)
+        )
+        camera.lookAt(earthCenter.x, earthCenter.y, earthCenter.z)
 
-      if (totalProgress < 0.333) {
-        currentPhase = 0
-        // Phase 1: Earth (0-15s)
-        if (lastPhase !== currentPhase) {
-          controls.target.set(0, 0, 0)
-          if (orbitTargetElement) orbitTargetElement.textContent = 'Earth (0, 0, 0)'
+      } else if (tp < P_FRANKEN) {
+        // Phase 2: NAHTLOS aus dem Erd-Orbit heraus zu Franken absteigen und zurück.
+        // Kein Glitch/Snap - die Orbit-Rotation läuft einfach weiter in den Abstieg.
+        enterPhase(3, frankenSurf, 'Franken (49.5N, 11E)', false)
+        const l = (tp - P_EARTH) / (P_FRANKEN - P_EARTH)
+        // s: 0 (Orbit) -> 1 (über Franken) -> halten -> 0 (zurück in den Orbit)
+        let s
+        if (l < 0.45) s = 1 - (1 - l / 0.45) ** 2       // easeOut: trägt die Orbit-Rotation weiter
+        else if (l < 0.60) s = 1                         // über Franken halten
+        else s = easeInOut(1 - (l - 0.60) / 0.40)        // sanft zurück in den Orbit
+        // Rotation läuft aus dem Erd-Orbit weiter (theta ab 2π = Orbit-Endpunkt (15,5,0))
+        // Je eine halbe Umdrehung rein und raus -> ruhiger Bogen statt Wirbel.
+        // turn läuft bewusst MONOTON 0 -> 1 -> 2 und nicht über s (das geht 0 -> 1 -> 0):
+        // sonst spult der Aufstieg die Abstiegs-Rotation exakt rückwärts ab und sieht
+        // aus wie ein Rückspulen. So dreht er in derselben Richtung weiter.
+        const turn = (l < 0.60) ? s : 2 - s
+        const theta = Math.PI * 2 + turn * Math.PI
+        const orbitDir = new THREE.Vector3(
+          earthRadius * Math.cos(theta), 5, earthRadius * Math.sin(theta)
+        ).normalize()
+        const dir = slerpDir(orbitDir, frankenAxis, s * s) // früh orbital, spät senkrecht über Franken
+        const R = lerp(15.8114, 5.4, easeInOut(s))         // 15.8114 = |(15,5,0)| -> nahtloser Start; 5.4 = näher ran (Kante aus dem Bild)
+        camera.position.copy(dir.multiplyScalar(R))
+        _lookTarget.set(0, 0, 0).lerp(frankenSurf, s)      // Blick weich von Erdmittelpunkt -> Franken
+        camera.lookAt(_lookTarget)
 
-          // Update current tour phase and CAM display
-          currentTourPhase = 0
-          window.currentTourPhase = 0
-          window.updateTourOrbitDisplay()
-
-          // Trigger glitch effect on target change
-          glitchPass.goWild = true
-          setTimeout(() => {
-            glitchPass.goWild = false
-          }, 300)
-
-          lastPhase = currentPhase
+        // Am Tiefpunkt des Anflugs (s=1, R 5.4) einmalig den Oberfranken-Rundflug
+        // einschieben. Die Tour rechnet ihre Kameraposition aus dem Fortschritt, der
+        // Rundflug fliegt imperativ und liest die Position beim Bauen - beides gleich-
+        // zeitig ginge nicht, also pausieren statt mischen. Der Rückflug liefert die
+        // Kamera exakt hier wieder ab, danach läuft die Tour ohne Sprung weiter.
+        if (!frankenDiveDone && l >= 0.45) {
+          frankenDiveDone = true
+          tourTimeline.pause()
+          startFrankenTour({
+            backTo: camera.position.clone(),
+            backLook: _lookTarget.clone(),
+            onDone: () => tourTimeline.resume()
+          })
         }
 
-        localProgress = totalProgress / 0.333
-        angle = localProgress * Math.PI * 2
-        currentCenter = earthCenter
-        currentRadius = earthRadius
-        currentY = 5
-
-        camera.position.x = currentCenter.x + currentRadius * Math.cos(angle)
-        camera.position.y = currentCenter.y + currentY
-        camera.position.z = currentCenter.z + currentRadius * Math.sin(angle)
-        camera.lookAt(currentCenter.x, currentCenter.y, currentCenter.z)
-
-      } else if (totalProgress < 0.666) {
-        // Phase 2: Moon rotation (15-30s)
-        currentPhase = 1
-        if (lastPhase !== currentPhase) {
-          controls.target.set(50, 0, 0)
-          if (orbitTargetElement) orbitTargetElement.textContent = 'Moon (50, 0, 0)'
-
-          // Update current tour phase and CAM display
-          currentTourPhase = 1
-          window.currentTourPhase = 1
-          window.updateTourOrbitDisplay()
-
-          // Trigger glitch effect on target change
-          glitchPass.goWild = true
-          setTimeout(() => {
-            glitchPass.goWild = false
-          }, 300)
-
-          lastPhase = currentPhase
-        }
-
-        const phaseProgress = (totalProgress - 0.333) / 0.333
-        angle = -phaseProgress * Math.PI * 2  // Negativ für gegen Uhrzeigersinn
-
-        camera.position.x = moonCenter.x + moonRadius * Math.cos(angle)
-        camera.position.y = moonCenter.y + 0
-        camera.position.z = moonCenter.z + moonRadius * Math.sin(angle)
+      } else if (tp < P_MOON) {
+        // Phase 3: Mond-Orbit (gegen Uhrzeigersinn)
+        enterPhase(1, new THREE.Vector3(50, 0, 0), 'Moon (50, 0, 0)')
+        const phaseProgress = (tp - P_FRANKEN) / (P_MOON - P_FRANKEN)
+        angle = -phaseProgress * Math.PI * 2
+        camera.position.set(
+          moonCenter.x + moonRadius * Math.cos(angle),
+          moonCenter.y,
+          moonCenter.z + moonRadius * Math.sin(angle)
+        )
         camera.lookAt(moonCenter.x, moonCenter.y, moonCenter.z)
 
       } else {
-        // Phase 3: Mars rotation (30-45s)
-        currentPhase = 2
-        if (lastPhase !== currentPhase) {
-          controls.target.set(500, 0, 500)
-          if (orbitTargetElement) orbitTargetElement.textContent = 'Mars (500, 0, 500)'
-
-          // Update current tour phase and CAM display
-          currentTourPhase = 2
-          window.currentTourPhase = 2
-          window.updateTourOrbitDisplay()
-
-          // Trigger glitch effect on target change
-          glitchPass.goWild = true
-          setTimeout(() => {
-            glitchPass.goWild = false
-          }, 300)
-
-          lastPhase = currentPhase
-        }
-
-        const phaseProgress = (totalProgress - 0.666) / 0.334
+        // Phase 4: Mars-Orbit
+        enterPhase(2, new THREE.Vector3(500, 0, 500), 'Mars (500, 0, 500)')
+        const phaseProgress = (tp - P_MOON) / (1 - P_MOON)
         angle = phaseProgress * Math.PI * 2
-
-        camera.position.x = marsCenter.x + marsRadius * Math.cos(angle)
-        camera.position.y = marsCenter.y + 5
-        camera.position.z = marsCenter.z + marsRadius * Math.sin(angle)
+        camera.position.set(
+          marsCenter.x + marsRadius * Math.cos(angle),
+          marsCenter.y + 5,
+          marsCenter.z + marsRadius * Math.sin(angle)
+        )
         camera.lookAt(marsCenter.x, marsCenter.y, marsCenter.z)
       }
     }
@@ -1746,14 +2438,19 @@ animate()
 
 window.addEventListener("resize", onWindowResize, false);
 function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const vp = viewportSize();
+
+  camera.aspect = vp.w / vp.h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(vp.w, vp.h);
+  composer.setSize(vp.w, vp.h);
+
+  // Beim Drehen des Handys wechselt die Breitenklasse: Zeilenzahl und Position neu.
+  renderFrankenInfo();
 
   const pixelRatio = renderer.getPixelRatio();
-  fxaaPass.material.uniforms['resolution'].value.x = 1 / (window.innerWidth * pixelRatio);
-  fxaaPass.material.uniforms['resolution'].value.y = 1 / (window.innerHeight * pixelRatio);
+  fxaaPass.material.uniforms['resolution'].value.x = 1 / (vp.w * pixelRatio);
+  fxaaPass.material.uniforms['resolution'].value.y = 1 / (vp.h * pixelRatio);
 }
 
 THREE.DefaultLoadingManager.onLoad = () => {
