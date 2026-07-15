@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.local
 
+# Lokales Debug-Material
+screenshots/
+
 # Logs
 logs
 *.log
