@@ -172,7 +172,15 @@ const camPosElement = document.getElementById('cam-pos')
 const camRotElement = document.getElementById('cam-rot')
 const orbitTargetElement = document.getElementById('orbit-target')
 
+// Basis-Texturen: hängen am DefaultLoadingManager, dessen onLoad den Ladekreis ausblendet.
 const textureLoader = new THREE.TextureLoader()
+
+// Regio-Texturen bekommen einen EIGENEN Manager. Sie sind zusammen ~12 MB und werden erst
+// im Franken-Anflug gebraucht; am DefaultLoadingManager würde der Ladekreis auf sie warten,
+// obwohl der Orbit-Globus schon nach ~1.3 MB steht - 90% der Wartezeit für nichts.
+// Ihre Sichtbarkeit steuern readyAt/appearRamp ohnehin selbst, der GPU-Upload die
+// uploadQueue. Sie melden dem Ladekreis also nichts und müssen es auch nicht.
+const regionLoader = new THREE.TextureLoader(new THREE.LoadingManager())
 
 // Basis-Globus: SSS-Daymap 4k (Downscale der 8k-Quelle) - gleiche Bildfamilie wie der
 // Europa-Crop, damit der HD-Patch beim Anflug versatzfrei aufliegt.
@@ -396,7 +404,7 @@ const REGION = {
 // ein statt aufzuploppen.
 const uploadQueue = []
 function loadRegionTexture(url, onReady) {
-  const tex = textureLoader.load(url, () => uploadQueue.push({ tex, onReady }))
+  const tex = regionLoader.load(url, () => uploadQueue.push({ tex, onReady }))
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
   tex.colorSpace = earthTexture.colorSpace // identische Behandlung wie Basistextur
   tex.minFilter = THREE.LinearMipmapLinearFilter

@@ -5,7 +5,13 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'img/**/*'],
+      // NICHT 'img/**/*' aufnehmen: includeAssets legt alles ins Precache-Manifest, das
+      // dann bei jedem Besucher komplett im Hintergrund geladen wird - hier waren das
+      // 20.5 MB. Das widerspricht globPatterns (nur js/css/html/svg/woff) und der
+      // runtimeCaching-Regel weiter unten, die Bilder ausdrücklich on-demand cachen soll.
+      // Die Build-Meldung "precache N entries (X KiB)" zählt includeAssets NICHT mit und
+      // verschleiert das.
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'c1zz - Space Portfolio',
         short_name: 'c1zz',

@@ -75,7 +75,8 @@ Build drops console logs and debugger statements in production via Terser.
 **PWA Configuration**:
 - Service Worker with autoUpdate registration
 - Runtime caching: Google Fonts (1 year), images (30 days, CacheFirst)
-- Only critical assets (JS/CSS/HTML/fonts) are precached, not textures
+- Only critical assets (JS/CSS/HTML/fonts) are precached (~775 KiB); textures load on demand via the `image-cache` runtime rule (CacheFirst, 30 days, maxEntries 20 — the app loads 17 images, so there is little headroom)
+- **Do not add `img/**/*` to `includeAssets`.** It appends every image to the precache manifest regardless of `globPatterns`, which every visitor then downloads in the background — it was 20.5 MB until it was found. The build line `precache N entries (X KiB)` does **not** count `includeAssets` and hides this.
 
 ## Multi-Language System
 
