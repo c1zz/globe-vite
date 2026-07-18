@@ -753,11 +753,22 @@ function showModeContent(section, mode) {
     }
 
     const data = contentData[section]?.[mode]?.[currentLang] || contentData.start.more.de
-    content.innerHTML = `
-        <p><strong>${data.title}</strong></p>
-        <p>${data.text}</p>
-        <p style="opacity: 0.6; font-size: 0.9em;">Platzhalter für ${section} / ${mode}</p>
-    `
+    // textContent statt innerHTML: title/text und die aus data-*-Attributen
+    // stammenden section/mode werden so nie als HTML reinterpretiert (CodeQL)
+    const titleP = document.createElement('p')
+    const strong = document.createElement('strong')
+    strong.textContent = data.title
+    titleP.appendChild(strong)
+
+    const textP = document.createElement('p')
+    textP.textContent = data.text
+
+    const noteP = document.createElement('p')
+    noteP.style.opacity = '0.6'
+    noteP.style.fontSize = '0.9em'
+    noteP.textContent = `Platzhalter für ${section} / ${mode}`
+
+    content.replaceChildren(titleP, textP, noteP)
 
     // Maintain collapsed state if it was hidden
     if (isContentHidden) {
