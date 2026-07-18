@@ -80,27 +80,17 @@ export default defineConfig({
     cssCodeSplit: true,
     rollupOptions: {
       output: {
-        manualChunks: (id) => {
-          // Three.js separater Chunk
-          if (id.includes('node_modules/three')) {
-            return 'three';
-          }
-          // GSAP separater Chunk
-          if (id.includes('node_modules/gsap')) {
-            return 'gsap';
-          }
-          // Post-Processing in eigenen Chunk
-          if (id.includes('EffectComposer') || id.includes('Pass') || id.includes('Shader')) {
-            return 'postprocessing';
-          }
-          // App-Code
-          if (id.includes('src/js/app')) {
-            return 'app';
-          }
-          // Scene separat (größter Teil)
-          if (id.includes('src/js/scene')) {
-            return 'scene';
-          }
+        // Vite 8 nutzt rolldown: manualChunks() wird ignoriert, stattdessen
+        // advancedChunks.groups (in Reihenfolge geprüft, erster Treffer gewinnt).
+        // Ziel wie zuvor: three und gsap als eigene, unabhängig cachebare Chunks.
+        advancedChunks: {
+          groups: [
+            { name: 'three', test: /node_modules[\\/]three/ },
+            { name: 'gsap', test: /node_modules[\\/]gsap/ },
+            { name: 'postprocessing', test: /(EffectComposer|Pass|Shader)/ },
+            { name: 'app', test: /src[\\/]js[\\/]app/ },
+            { name: 'scene', test: /src[\\/]js[\\/]scene/ }
+          ]
         },
         // Chunk-Namen optimieren
         chunkFileNames: 'assets/[name]-[hash].js',

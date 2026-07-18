@@ -8,10 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Tech Stack
 
-- **Build Tool**: Vite 5.4.11
+- **Build Tool**: Vite 8.1.5 (rolldown-based)
 - **3D Graphics**: Three.js 0.181.0 with custom GLSL shaders
 - **Animation**: GSAP 3.12.5
-- **PWA**: vite-plugin-pwa 0.20.5 with Workbox
+- **PWA**: vite-plugin-pwa 1.3.0 with Workbox
 - **Runtime**: Node.js (v16+ via .node-version)
 
 ## Development Commands
@@ -186,7 +186,7 @@ The project uses custom EffectComposer files instead of Three.js examples becaus
 Don't separate language files - the embedded approach in index.html is intentional for simplicity (no server-side i18n needed).
 
 ### 4. Manual Chunk Splitting
-The build configuration manually splits chunks by library to enable independent browser caching. Don't remove manualChunks logic without understanding bundle size impact.
+The build configuration manually splits chunks by library to enable independent browser caching (`three` and `gsap` as separate, independently cacheable chunks). Don't remove this logic without understanding bundle size impact. **Vite 8 uses rolldown, which ignores rollup's `manualChunks()` function** — the split is configured via `build.rollupOptions.output.advancedChunks.groups` (evaluated in order, first match wins). If `three`/`gsap` ever collapse into one big chunk after a build-tool change, this is why.
 
 ### 5. Service Worker Cache Strategy
 The sw.js must never be cached itself (Cache-Control: no-cache). Only static assets get long-term caching. This ensures auto-updates work.
